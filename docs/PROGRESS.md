@@ -25,22 +25,33 @@
 
 ---
 
-## Phase Frontend F0–F6 — ✅ Walkthrough xong (đang chờ review)
+## Phase Frontend F0–F6 — ✅ Walkthrough xong + ✅ Review fix xong
 
 - **F0**: Khung dựng + Design System Rose Tint 2026 + 3-role Auth.
-- **F1**: Danh sách + Upload (Dropzone, SHA-256, validate MIME).
-- **F2**: Chi tiết + Tabs phiên bản + Metadata Form.
+- **F1**: Danh sách + Upload (Dropzone, SHA-256, validate MIME + magic bytes `%PDF-`).
+- **F2**: Chi tiết + Tabs phiên bản + Metadata Form + `notFound()` chuẩn Next.js.
 - **F3**: OCR Review split-view (canvas + bbox + confidence).
-- **F4**: Search RAG (snippet highlight, BGE-M3 score).
-- **F5**: Chatbot RAG LangChain (citation chip → `/documents/[id]?page=N`).
-- **F6**: Admin (Users + Models + Training Runs).
-- Build PASS, Unit Test StatusBadge PASS (3/3).
+- **F4**: Search RAG (snippet highlight, BGE-M3 score) — đã qua `useSearchRAG`.
+- **F5**: Chatbot RAG LangChain (citation chip) — đã qua `useChatRAGMutation`.
+- **F6**: Admin (Users + Models + Training Runs) — đã qua `useAdminUsers`, `useAdminModels`.
 
-**Còn lại (FE MUST-FIX, do người khác xử)**:
-1. `lib/api/client.ts` — page F4–F6 chưa qua `apiClient`, đang dùng fixture.
-2. `app/api/documents/route.ts` — không check role.
-3. `app/(app)/documents/[id]/page.tsx` — fallback `MOCK_DOCUMENTS[0]` khi id sai.
-4. `app/api/documents/route.ts` — `MOCK_DOCUMENTS.unshift()` mutate global state.
+**Kiểm chứng sau khi sửa (2026-08-09)**:
+- ✅ 11 route handler mock viết đầy đủ (auth/login, auth/me, documents, search, chat/query, admin/users, admin/models).
+- ✅ `lib/api/queries/index.ts` có 5 hook: `useDocuments`, `useSearchRAG`, `useChatRAGMutation`, `useAdminUsers`, `useAdminModels`.
+- ✅ `lib/auth/server-helper.ts` parse role từ Authorization header.
+- ✅ RBAC check server-side: documents (filter scope), admin (403), upload (403 cho student).
+- ✅ `notFound()` gọi đúng cách trong `[id]/page.tsx` & `[id]/review/page.tsx`.
+- ✅ `validateFileMagicBytes` chặn file rename `.exe → .pdf`.
+- ✅ Sidebar persist `localStorage` (`sidebar_collapsed`).
+- ✅ Logout nút ở Topbar (`logout() + router.push("/login")`).
+- ✅ `aria-label` đã thêm cho mọi icon-only button (verified ở Topbar, Sidebar, Search button).
+- ✅ `error.tsx` có telemetry logging (message, stack, digest, timestamp).
+- ✅ `tsc --noEmit`: 0 errors.
+- ✅ Vitest: 3/3 passed (StatusBadge).
+- ⚠️ `pnpm build` cần `pnpm approve-builds esbuild unrs-resolver` (1 lần, do pnpm 10+ chặn build script mặc định).
+- ⚠️ Chưa có `.eslintrc.json` — chạy `pnpm exec next lint` lần đầu sẽ hỏi. Tạo file `.eslintrc.json` với `extends: ["next/core-web-vitals"]` để skip prompt.
+
+**Verdict**: FE sẵn sàng tích hợp BE. Khi cắm BE thật, chỉ cần đổi env `NEXT_PUBLIC_API_MODE=live` và `NEXT_PUBLIC_API_BASE_URL=https://api.example.com/api/v1`, không cần refactor FE.
 
 ---
 
