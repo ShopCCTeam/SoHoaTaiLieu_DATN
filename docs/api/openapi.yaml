@@ -1,0 +1,316 @@
+openapi: 3.1.0
+info:
+  title: Hệ Thống Số Hoá Tài Liệu CTSV — REST API
+  version: 1.0.0-draft
+  description: |
+    API RESTful cho hệ thống số hoá & quản lý tài liệu Công tác Sinh viên.
+    Tài liệu này là **draft** trong giai đoạn foundation. Sau khi FastAPI code,
+    file sẽ được generate tự động bằng `fastapi.openapi_utils`.
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development
+  - url: https://api.example.edu.vn/api/v1
+    description: Production (placeholder)
+
+tags:
+  - name: auth
+  - name: documents
+  - name: jobs
+  - name: ocr
+  - name: search
+  - name: rag
+  - name: admin
+  - name: audit
+
+# -------- Security --------
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ----- Common -----
+    Error:
+      type: object
+      required: [type, title, status, code, request_id]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code:
+          type: string
+          enum: [UNAUTHORIZED, FORBIDDEN, NOT_FOUND, VALIDATION_ERROR, INVALID_FILE_TYPE, RATE_LIMIT, INTERNAL]
+        request_id: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    SuccessEnvelope:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data: {}
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+
+    # ----- Domain -----
+    DocumentScope:
+      type: string
+      enum: [PUBLIC, STUDENT_AFFAIRS, INTERNAL]
+
+    DocumentStatus:
+      type: string
+      enum: [DRAFT, UNDER_REVIEW, APPROVED, ARCHIVED]
+
+    JobStatus:
+      type: string
+      enum: [QUEUED, PROCESSING, SUCCEEDED, FAILED, CANCELLED]
+
+    Document:
+      type: object
+      required: [id, title, type, status, scope, latest_version, created_at, updated_at]
+      properties:
+        id: { type: string, example: "doc_01HXYZ..." }
+        title: { type: string }
+        type:
+          type: string
+          enum: [QUY_CHE, QUY_DINH, THONG_BAO, QUYET_DINH, HUONG_DAN, KHAC]
+        status: { $ref: '#/components/schemas/DocumentStatus' }
+        scope: { $ref: '#/components/schemas/DocumentScope' }
+        code_number: { type: string, nullable: true }
+        issuing_body: { type: string, nullable: true }
+        effective_from: { type: string, format: date, nullable: true }
+        effective_to: { type: string, format: date, nullable: true }
+        latest_version: { type: integer }
+        author_id: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    DocumentVersion:
+      type: object
+      required: [id, document_id, version_number, status, file_url, checksum, file_size, created_at]
+      properties:
+        id: { type: string }
+        document_id: { type: string }
+        version_number: { type: integer }
+        status: { $ref: '#/components/schemas/DocumentStatus' }
+        file_url: { type: string }
+        file_size: { type: integer }
+        checksum: { type: string, description: "SHA-256 hex" }
+        ocr_status:
+          type: string
+          enum: [NOT_STARTED, QUEUED, PROCESSING, SUCCEEDED, FAILED]
+        supersedes_version_id: { type: string, nullable: true }
+        superseded_by_version_id: { type: string, nullable: true }
+        change_summary: { type: string, nullable: true }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+
+    UploadResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data:
+          type: object
+          required: [document_id, job_id, status]
+          properties:
+            document_id: { type: string }
+            job_id: { type: string }
+            status:
+              $ref: '#/components/schemas/JobStatus'
+
+    Job:
+      type: object
+      required: [id, type, status, created_at]
+      properties:
+        id: { type: string }
+        type:
+          type: string
+          enum: [OCR, EMBEDDING, INDEXING, REINDEX]
+        status: { $ref: '#/components/schemas/JobStatus' }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        error: { type: string, nullable: true }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    Citation:
+      type: object
+      required: [document_id, document_version_id, title, page_number, chunk_id, quote, score]
+      properties:
+        document_id: { type: string }
+        document_version_id: { type: string }
+        title: { type: string }
+        page_number: { type: integer }
+        chunk_id: { type: string }
+        quote: { type: string }
+        score:
+          type: number
+          minimum: 0
+          maximum: 1
+        bbox:
+          type: array
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
+          description: "[x_min, y_min, x_max, y_max]"
+
+    ChatResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data:
+          type: object
+          required: [answer, citations, has_sufficient_evidence]
+          properties:
+            answer: { type: string }
+            citations:
+              type: array
+              items: { $ref: '#/components/schemas/Citation' }
+            has_sufficient_evidence: { type: boolean }
+
+paths:
+  # -------- Auth --------
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      summary: Đăng nhập bằng email + password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    required: [access_token, refresh_token, user]
+                    properties:
+                      access_token: { type: string }
+                      refresh_token: { type: string }
+                      expires_in: { type: integer }
+                      user:
+                        type: object
+                        properties:
+                          id: { type: string }
+                          email: { type: string }
+                          full_name: { type: string }
+                          role:
+                            type: string
+                            enum: [admin, staff, student]
+                          department: { type: string, nullable: true }
+        '401':
+          description: Sai thông tin đăng nhập
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # -------- Documents --------
+  /documents:
+    get:
+      tags: [documents]
+      summary: Danh sách tài liệu (filter theo scope theo role)
+      parameters:
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/DocumentStatus' }
+        - in: query
+          name: type
+          schema: { type: string }
+        - in: query
+          name: q
+          schema: { type: string, description: "Full-text search trên title/code/tags" }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Document' }
+        '401': { $ref: '#/components/schemas/Error' }
+
+    post:
+      tags: [documents]
+      summary: Upload tài liệu mới (trả về job, OCR chạy async)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, title, type, scope]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: "PDF ≤ 50MB, MIME = application/pdf, magic bytes %PDF-"
+                title: { type: string }
+                type:
+                  type: string
+                  enum: [QUY_CHE, QUY_DINH, THONG_BAO, QUYET_DINH, HUONG_DAN, KHAC]
+                scope: { $ref: '#/components/schemas/DocumentScope' }
+                issuing_body: { type: string }
+                effective_from: { type: string, format: date }
+                tags:
+                  type: array
+                  items: { type: string }
+                change_summary:
+                  type: string
+                  description: "Mô tả thay đổi so với phiên bản cũ (nếu supersede)"
+                supersedes_document_id:
+                  type: string
+                  description: "Nếu đây là văn bản thay thế, truyền ID văn bản cũ"
+      responses:
+        '202':
+          description: Accepted — job đã được queue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadResponse' }
+        '403': { $ref: '#/components/schemas/Error' }
+        '413': { $ref: '#/components/schemas/Error' }
+        '415': { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/schemas/Error' }
