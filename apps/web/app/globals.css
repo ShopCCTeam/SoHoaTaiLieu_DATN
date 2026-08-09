@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* 2026 Soft Ergonomic Rose Porcelain Light Palette */
+    --background: 350 20% 98%;      /* #FBF8F8 - Warm Porcelain, zero glare */
+    --foreground: 345 20% 16%;      /* #281D21 - Deep Charcoal Rose */
+    
+    --card: 0 0% 100%;             /* #FFFFFF */
+    --card-foreground: 345 20% 16%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 345 20% 16%;
+    
+    --primary: 350 55% 85%;         /* #F3C5CB - Soft Ergonomic Pastel Rose */
+    --primary-foreground: 345 45% 20%;
+    
+    --secondary: 350 45% 94%;       /* #F8EBEF - Gentle Rose Tint */
+    --secondary-foreground: 345 30% 25%;
+    
+    --muted: 350 20% 95%;
+    --muted-foreground: 345 10% 45%;/* Soothing Slate Rose Muted Text */
+    
+    --accent: 350 45% 94%;
+    --accent-foreground: 345 35% 20%;
+    
+    --destructive: 354 65% 55%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --border: 350 30% 90%;          /* Soft subtle border */
+    --input: 350 30% 90%;
+    --ring: 350 55% 85%;
+    
+    --radius: 0.85rem;
+  }
+
+  .dark {
+    /* 2026 Deep Slate Charcoal Dark Palette - Zero Eyestrain */
+    --background: 345 15% 8%;       /* #151214 - Smooth Deep Charcoal Slate */
+    --foreground: 350 20% 96%;      /* #F8F5F6 - Soft Warm Off-White Text */
+    
+    --card: 345 15% 12%;            /* #221D20 - Card Surface */
+    --card-foreground: 350 20% 96%;
+    
+    --popover: 345 15% 12%;
+    --popover-foreground: 350 20% 96%;
+    
+    --primary: 350 60% 75%;         /* #ED9EAA - Warm Velvet Rose Accent */
+    --primary-foreground: 345 40% 10%;
+    
+    --secondary: 345 15% 18%;       /* #2D272A */
+    --secondary-foreground: 350 20% 96%;
+    
+    --muted: 345 15% 16%;
+    --muted-foreground: 345 10% 65%;/* Comfortable reading gray */
+    
+    --accent: 345 15% 18%;
+    --accent-foreground: 350 20% 96%;
+    
+    --destructive: 354 65% 55%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --border: 345 15% 22%;          /* Subtle non-glaring dark border */
+    --input: 345 15% 22%;
+    --ring: 350 60% 75%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased selection:bg-primary/25 selection:text-foreground;
+  }
+}
+
+/* Custom 2026 Ergonomic Glassmorphism */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(240, 205, 212, 0.5);
+  box-shadow: 0 4px 20px -2px rgba(220, 170, 180, 0.06);
+}
+
+.dark .glass-panel {
+  background: rgba(30, 24, 27, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(210, 150, 160, 0.3);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(210, 150, 160, 0.5);
+}

@@ -1,0 +1,54 @@
+---
+description: Quy tắc Security, auth, secrets, bảo vệ dữ liệu
+alwaysApply: true
+---
+
+# Security Standards
+
+## Authentication
+- Password: bcrypt cost ≥ 12, hoặc argon2id.
+- Session: JWT ngắn hạn (15 phút) + refresh token rotation (7 ngày).
+- Logout: invalidate refresh token ở server, không chỉ xoá client.
+- Demo account: phải đánh dấu rõ `IS_DEMO=true`, không dùng trong production.
+
+## Authorization (RBAC)
+- 3 roles: `admin`, `staff`, `student`. Matrix đã định nghĩa ở `lib/auth/permissions.ts`.
+- **Luôn check permission ở backend**. FE chỉ ẩn UI để UX, không phải security boundary.
+- Scope check: `student` chỉ xem được `scope IN ('PUBLIC', 'STUDENT_AFFAIRS')`. `INTERNAL` cần `staff/admin`.
+
+## Input Validation
+- Mọi endpoint: validate body + query + param + file.
+- File upload: check MIME magic bytes (`%PDF-`, `\xFF\xD8\xFF` cho JPEG), **không tin extension**.
+- Giới hạn size: PDF ≤ 50MB, ảnh ≤ 10MB.
+- Reject path traversal trong filename (`../`, `\\`).
+
+## Secrets & Environment
+- `.env` chứa: DB password, JWT secret, OCR engine API key.
+- `.env` đã có trong `.gitignore`. **Không commit**.
+- `.env.example` chứa keys placeholder, không value thật.
+- Production: dùng secret manager (Docker secret, K8s secret, hoặc cloud).
+
+## Logging
+- Log structured JSON: `{timestamp, level, requestId, userId, action, result, duration}`.
+- **KHÔNG log**: password, JWT token, checksum của file, PII (email, tên thật SV).
+- Log rotation, retention 30 ngày.
+
+## Rate Limiting
+- `/auth/login`: 5 req / 15 phút / IP.
+- `/chat/query`: 30 req / phút / user.
+- `/documents` POST (upload): 10 req / giờ / user.
+- 429 Too Many Requests + `Retry-After` header.
+
+## HTTPS & CORS
+- Production: HTTPS only. HSTS header.
+- CORS: chỉ allow origin từ `ALLOWED_ORIGINS` env.
+- CSRF: dùng SameSite=Lax cookie + CSRF token cho form.
+
+## Audit
+- Log mọi mutation quan trọng vào `audit_logs`: role change, document approve, model activate.
+- Giữ audit log ≥ 1 năm.
+
+## Ref khi cần
+- Skill `.skills/security-requirement-extraction/` cho threat modeling.
+- Skill `.skills/webvuln/`, `.skills/ssrf/`, `.skills/jwt/`, `.skills/ssti/` cho từng loại vuln.
+- Skill `.skills/evidence-hygiene/` cho evidence-based security review.

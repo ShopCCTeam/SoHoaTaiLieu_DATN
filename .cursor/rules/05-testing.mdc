@@ -1,0 +1,42 @@
+---
+description: Quy tắc Testing: unit, integration, E2E, TDD
+alwaysApply: true
+---
+
+# Testing Standards
+
+## TDD là mặc định (theo skill test-driven-development)
+1. Viết test RED trước (chạy fail).
+2. Viết code GREEN tối thiểu để pass.
+3. REFACTOR: cải thiện code, test vẫn pass.
+- Áp dụng cho: business logic, utility functions, custom hooks, repositories.
+
+## Khi nào KHÔNG cần test
+- Type definitions, constants, pure config.
+- Component chỉ làm presentation pass-through (ưu tiên snapshot test thay vì unit test).
+- Mock fixtures dùng cho demo.
+
+## Test layer
+| Layer | Tool | Mục tiêu coverage |
+|---|---|---|
+| Unit | Vitest (FE), pytest/Jest (BE) | ≥ 80% cho service & domain |
+| Component | Vitest + Testing Library | ≥ 60% cho shared component |
+| Integration | Supertest (BE), MSW (FE) | ≥ 50% cho endpoint |
+| E2E | Playwright | Critical path: login → upload → OCR → search → chat |
+
+## Convention
+- File test đặt cạnh file source: `foo.ts` → `foo.test.ts`.
+- Hoặc folder `__tests__/`: chọn 1 style, áp dụng nhất quán trong 1 package.
+- Tên test theo `should <behavior> when <condition>`.
+- Mỗi test độc lập, không share state, không phụ thuộc thứ tự.
+
+## E2E test (Playwright)
+- Test critical path trong `e2e/` folder.
+- Dùng fixture mock BE (MSW) — không gọi BE thật trong CI.
+- Chạy `pnpm test:e2e` trước khi merge.
+- CI chạy test:e2e trên PR.
+
+## Ref
+- Skill `.skills/test-driven-development/` — TDD cycle chuẩn.
+- Skill `.skills/webapp-testing/` — Playwright best practices.
+- Skill `.skills/systematic-debugging/` — khi test fail, debug có hệ thống.

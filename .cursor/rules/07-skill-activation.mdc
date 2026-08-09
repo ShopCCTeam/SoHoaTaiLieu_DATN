@@ -1,0 +1,48 @@
+---
+description: Hướng dẫn sử dụng các Agent Skill đã cài trong workspace
+alwaysApply: true
+---
+
+# Skill Activation Guide
+
+> Repo đã cài sẵn 27 skill trong `.skills/`. Skill nào cũng có SKILL.md đọc qua `Read` tool.
+> **Nguyên tắc**: trước khi làm task, dùng `Glob` để check `.skills/*/SKILL.md` xem có skill liên quan không → nếu có → đọc → follow.
+
+## Khi nào đọc skill nào
+
+| Task | Đọc skill |
+|---|---|
+| Viết code FE (component, hook, page) | `.skills/vercel-react-best-practices/`, `.skills/react-best-practices/` |
+| Design UI/UX, glassmorphism, motion | `.skills/frontend-design/`, `.skills/web-design-guidelines/` |
+| Viết BE Node.js | `.skills/nodejs-best-practices/` |
+| Viết BE Python FastAPI | `.skills/fastapi-local-oop-background-task-system/`, `.skills/fastapi-base64-image-form-submission/`, `.skills/fastapi-generic-dynamic-filtering-with-pydantic-and-sqlalchemy/` |
+| Background job / queue | `.skills/fastapi-local-oop-background-task-management-system/` |
+| RAG / LangChain / Qdrant / Ollama | `.skills/langchain-local-pdf-rag-pipeline/`, `.skills/local-pdf-rag-pipeline-with-langchain-and-ollama/` |
+| OCR text processing | `.skills/ocr-text-to-wikimedia-source-converter/` |
+| Database / SQL / schema | `.skills/postgres-sql-generator-from-english/`, `.skills/postgresql-inventory-and-price-tracking-schema/` |
+| Test code | `.skills/test-driven-development/`, `.skills/webapp-testing/` |
+| Debug code chạy sai | `.skills/systematic-debugging/` |
+| Design pattern | `.skills/composition-patterns/`, `.skills/universal-software-engineering/` |
+| Tạo plan trước khi code | `.skills/writing-plans/` |
+| Viết commit hoàn chỉnh (gộp PR) | `.skills/finishing-a-development-branch/` |
+| Tạo/sửa skill | `.skills/writing-skills/` |
+| Review security | `.skills/security-requirement-extraction/` |
+
+## Workflow khi nhận task phức tạp
+
+1. **Đọc yêu cầu** → xác định domain (FE, BE, DB, RAG, OCR, Test...).
+2. **Match skill** theo bảng trên.
+3. **Đọc SKILL.md** bằng `Read` tool.
+4. **Đọc references/** nếu SKILL.md link đến.
+5. **Viết plan** vào `docs/PROGRESS.md` (theo skill `writing-plans`).
+6. **Bắt đầu code** theo design principles + SOLID (rule `01-design-principles.mdc`).
+7. **Test trước commit** theo rule `05-testing.mdc`.
+8. **Commit & finish branch** theo skill `finishing-a-development-branch`.
+
+## Khi KHÔNG nên đọc skill
+- Task trivial (sửa typo, đổi text).
+- Task đã có convention rõ trong rule file rồi.
+- Task người dùng đã chỉ định pattern cụ thể.
+
+## Ref
+- Skill `.skills/writing-skills/` nếu cần tạo skill mới cho dự án.

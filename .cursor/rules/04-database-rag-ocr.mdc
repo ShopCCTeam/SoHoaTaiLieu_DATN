@@ -1,0 +1,47 @@
+---
+description: Quy tắc Database, schema design, RAG pipeline, OCR pipeline
+alwaysApply: true
+---
+
+# Database & Data Pipeline
+
+## PostgreSQL conventions
+- **Naming**: snake_case cho table & column. Plural cho table (`documents`, `document_versions`).
+- **Primary key**: UUID v7 hoặc bigint identity. Không dùng auto-increment smallint.
+- **Timestamp**: luôn có `created_at TIMESTAMPTZ`, `updated_at TIMESTAMPTZ` (trigger auto-update).
+- **Soft delete**: cột `deleted_at TIMESTAMPTZ NULL` thay vì `DELETE`.
+- **Foreign key**: luôn khai báo, có `ON DELETE` rõ ràng (RESTRICT/SET NULL/CASCADE).
+- **Index**: index mọi cột FK, mọi cột hay `WHERE` / `ORDER BY`.
+- **Audit log**: bảng `audit_logs` cho mọi mutation quan trọng (approve, role change).
+
+## Schema chính (đã chốt về mặt khái niệm)
+- `users` (id, email, password_hash, full_name, role, department, created_at)
+- `documents` (id, title, type, status, scope, code_number, issuing_body, effective_from, effective_to, latest_version, author_id, tags[], created_at, updated_at)
+- `document_versions` (id, document_id FK, version_number, status, file_url, file_size, checksum, ocr_status, supersedes_version_id, superseded_by_version_id, created_by, change_summary, created_at)
+- `ocr_jobs` (id, document_version_id FK, status, started_at, finished_at, error, engine)
+- `ocr_blocks` (id, ocr_job_id FK, page_number, bbox JSONB, text, confidence, is_edited, edited_by, edited_at, original_text)
+- `embeddings` (id, document_version_id FK, chunk_id, vector vector(1024), text, metadata JSONB)
+- `chat_messages` (id, user_id FK, role, content, citations JSONB, created_at)
+- `model_versions` (id, name, version, is_active, accuracy, size, created_at)
+- `training_runs` (id, model_version_id FK, status, started_at, finished_at, docs_indexed, loss, accuracy)
+
+## RAG Pipeline (LangChain + local PDF)
+- **Chunking**: RecursiveCharacterTextSplitter, chunk_size=800, chunk_overlap=150.
+- **Embedding**: BGE-M3 (1024 dim) hoặc fallback multilingual-e5-large.
+- **Vector store**: Qdrant (collection per scope để filter).
+- **Retrieval**: hybrid (BM25 + dense) → rerank bằng cross-encoder.
+- **Generation**: local LLM qua Ollama (Qwen2.5 hoặc Llama-3.1 8B instruct).
+- **Citation**: mỗi answer phải có `documentId`, `pageNumber`, `quote`, `score`.
+
+## OCR Pipeline
+- **Engine**: PaddleOCR (tiếng Việt) làm primary, Tesseract làm fallback.
+- **Trigger**: tự động khi document version `status = draft` → chuyển sang `processing`.
+- **Output**: `ocr_blocks` rows, mỗi block có bbox + confidence + text.
+- **Review**: nếu confidence < 0.9 → đánh dấu `needsReview=true`, hiện badge "Cần hiệu chỉnh" trên FE.
+- **Approval**: chỉ approve được khi `needsReview=false` hoặc tất cả `isEdited=true`.
+
+## Ref
+- Skill `.skills/langchain-local-pdf-rag-pipeline/` cho RAG.
+- Skill `.skills/local-pdf-rag-pipeline-with-langchain-and-ollama/` cho Ollama variant.
+- Skill `.skills/postgresql-inventory-and-price-tracking-schema/` cho pattern schema.
+- Skill `.skills/ocr-text-to-wikimedia-source-converter/` cho OCR text processing.

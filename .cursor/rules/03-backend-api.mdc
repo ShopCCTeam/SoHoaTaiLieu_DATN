@@ -1,0 +1,52 @@
+---
+description: Quy tắc Backend áp dụng cho server-side code (sẽ dùng khi Phase BE bắt đầu)
+globs: apps/api/**/*.ts,apps/api/**/*.py,packages/**/*.{ts,py}
+alwaysApply: false
+---
+
+# Backend Standards (sẽ áp dụng khi Phase BE bắt đầu)
+
+> File này là placeholder cho Phase BE. Cập nhật chi tiết khi chọn xong stack (Node.js vs Python).
+
+## Nguyên tắc chung (đã chốt)
+- **Layered Architecture**: Controller → Service → Repository → DB.
+- **API Design**: RESTful, JSON, versioned URL (`/api/v1/...`).
+- **Auth**: JWT bearer token + RBAC matrix (đã có sẵn ở FE `lib/auth/permissions.ts`).
+- **Validation**: validate ở boundary (controller/handler), dùng Zod (TS) hoặc Pydantic (Python).
+- **Error**: HTTP status chuẩn + JSON `{success, error, code}`.
+- **Logging**: structured log (JSON), có `requestId`, `userId`, không log sensitive data.
+- **Testing**: Unit test cho service, integration test cho endpoint.
+
+## API Contract với FE (đã chốt)
+- `GET /api/v1/documents?status=&q=&page=&limit=` → `{success, data: Document[], total}`
+- `POST /api/v1/documents` (multipart) → `{success, data: Document}`
+- `GET /api/v1/documents/:id` → `{success, data: Document}`
+- `POST /api/v1/documents/:id/versions` → `{success, data: DocumentVersion}`
+- `POST /api/v1/document-versions/:id/ocr` (trigger) → `{success, data: OcrJob}`
+- `PATCH /api/v1/document-versions/:id/metadata` → `{success, data: DocumentVersion}`
+- `POST /api/v1/document-versions/:id/approve` → `{success, data: DocumentVersion}`
+- `POST /api/v1/search` body `{q, filters}` → `{success, data: SearchResult[], total}`
+- `POST /api/v1/chat/query` body `{message, history}` → `{success, data: {answer, citations}}`
+- `GET /api/v1/admin/users` (admin) → `{success, data: User[]}`
+- `POST /api/v1/admin/model-versions/:id/activate` → `{success, data: ModelVersion}`
+
+## Security checklist (bắt buộc)
+- [ ] Mọi endpoint có auth trừ `/auth/login` và `/health`.
+- [ ] Mọi endpoint có permission check (`hasPermission(user, 'canEditOCR')`).
+- [ ] Input validation đầy đủ (body, query, param, file MIME).
+- [ ] Upload file: check MIME magic bytes, không tin extension.
+- [ ] SQL injection: dùng parameterized query / ORM.
+- [ ] Rate limit cho `/auth/login`, `/chat/query`.
+- [ ] CORS: chỉ allow origin từ env.
+- [ ] Secrets: qua env, không hardcode.
+
+## Background job
+- OCR job → queue (BullMQ/Arq nếu Node; Celery/RQ nếu Python).
+- Embedding job → chạy async sau khi OCR approved.
+- Trả về `jobId` ngay, FE poll `/ocr-jobs/:id` hoặc dùng WebSocket.
+
+## Ref khi Phase BE
+- Skill `.skills/nodejs-best-practices/` (decision tree chọn framework).
+- Skill `.skills/fastapi-local-oop-background-task-system/` (nếu chọn Python).
+- Skill `.skills/fastapi-generic-dynamic-filtering-with-pydantic-and-sqlalchemy/`.
+- Skill `.skills/postgres-sql-generator-from-english/` (sinh SQL từ tiếng Việt/Anh).
