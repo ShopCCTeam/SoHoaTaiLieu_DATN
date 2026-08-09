@@ -7,6 +7,15 @@ info:
     Tài liệu này là **draft** trong giai đoạn foundation. Sau khi FastAPI code,
     file sẽ được generate tự động bằng `fastapi.openapi_utils`.
 
+    ## Quy ước
+
+    - **Success**: envelope `{ success: true, data, total?, page?, limit? }`.
+    - **Error**: RFC 7807 Problem Details (`application/problem+json`).
+    - **Versioning**: URL prefix `/api/v1`.
+    - **Auth**: `Authorization: Bearer <access_token>` cho mọi endpoint trừ login/refresh/health.
+    - **Refresh token**: lưu ở `HttpOnly` cookie `rt`, KHÔNG trong response body.
+    - **Idempotency**: header `Idempotency-Key: <uuid>` bắt buộc cho upload/trigger/activate.
+
 servers:
   - url: http://localhost:8000/api/v1
     description: Local development
@@ -33,29 +42,50 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: rt
+      description: |
+        HttpOnly cookie chứa refresh token. Set bởi `/auth/login`, clear bởi `/auth/logout`.
+        Production phải có `Secure` + `SameSite=Lax` + `Path=/api/v1/auth`.
 
   schemas:
-    # ----- Common -----
-    Error:
+    # ----- Problem Details (RFC 7807) -----
+    ProblemDetail:
       type: object
       required: [type, title, status, code, request_id]
       properties:
-        type: { type: string, format: uri }
-        title: { type: string }
-        status: { type: integer }
-        detail: { type: string }
+        type:
+          type: string
+          format: uri
+          description: URI định danh loại lỗi (cùng origin với API).
+        title:
+          type: string
+          description: Tóm tắt ngắn gọn (tiếng Việt).
+        status:
+          type: integer
+          description: HTTP status code (mirror).
+        detail:
+          type: [string, "null"]
+          description: Mô tả chi tiết (tiếng Việt).
         code:
           type: string
-          enum: [UNAUTHORIZED, FORBIDDEN, NOT_FOUND, VALIDATION_ERROR, INVALID_FILE_TYPE, RATE_LIMIT, INTERNAL]
-        request_id: { type: string }
+          enum: [UNAUTHORIZED, FORBIDDEN, NOT_FOUND, VALIDATION_ERROR, INVALID_FILE_TYPE, RATE_LIMIT, CONFLICT, INTERNAL]
+          description: Mã machine-readable.
+        request_id:
+          type: string
+          description: UUID v7, khớp với log server.
         errors:
           type: array
+          description: Chi tiết validation (optional).
           items:
             type: object
             properties:
               field: { type: string }
               message: { type: string }
 
+    # ----- Success envelope -----
     SuccessEnvelope:
       type: object
       required: [success, data]
@@ -66,7 +96,7 @@ components:
         page: { type: integer }
         limit: { type: integer }
 
-    # ----- Domain -----
+    # ----- Domain enums -----
     DocumentScope:
       type: string
       enum: [PUBLIC, STUDENT_AFFAIRS, INTERNAL]
@@ -79,6 +109,28 @@ components:
       type: string
       enum: [QUEUED, PROCESSING, SUCCEEDED, FAILED, CANCELLED]
 
+    OCRReviewStatus:
+      type: string
+      enum: [PENDING, APPROVED, CORRECTED]
+      description: |
+        Trạng thái review cho từng block có `requires_review=true`.
+        - PENDING: chờ staff/admin xem.
+        - APPROVED: text OCR đã đúng, không cần sửa.
+        - CORRECTED: text đã được sửa (cũ → mới lưu ở `original_text`).
+
+    # ----- Domain entities -----
+    User:
+      type: object
+      required: [id, email, full_name, role]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        full_name: { type: string }
+        role:
+          type: string
+          enum: [admin, staff, student]
+        department: { type: [string, "null"] }
+
     Document:
       type: object
       required: [id, title, type, status, scope, latest_version, created_at, updated_at]
@@ -90,10 +142,10 @@ components:
           enum: [QUY_CHE, QUY_DINH, THONG_BAO, QUYET_DINH, HUONG_DAN, KHAC]
         status: { $ref: '#/components/schemas/DocumentStatus' }
         scope: { $ref: '#/components/schemas/DocumentScope' }
-        code_number: { type: string, nullable: true }
-        issuing_body: { type: string, nullable: true }
-        effective_from: { type: string, format: date, nullable: true }
-        effective_to: { type: string, format: date, nullable: true }
+        code_number: { type: [string, "null"] }
+        issuing_body: { type: [string, "null"] }
+        effective_from: { type: [string, "null"], format: date }
+        effective_to: { type: [string, "null"], format: date }
         latest_version: { type: integer }
         author_id: { type: string }
         tags:
@@ -104,7 +156,7 @@ components:
 
     DocumentVersion:
       type: object
-      required: [id, document_id, version_number, status, file_url, checksum, file_size, created_at]
+      required: [id, document_id, version_number, status, file_url, checksum, file_size, ocr_status, created_at]
       properties:
         id: { type: string }
         document_id: { type: string }
@@ -116,9 +168,15 @@ components:
         ocr_status:
           type: string
           enum: [NOT_STARTED, QUEUED, PROCESSING, SUCCEEDED, FAILED]
-        supersedes_version_id: { type: string, nullable: true }
-        superseded_by_version_id: { type: string, nullable: true }
-        change_summary: { type: string, nullable: true }
+        requires_review:
+          type: boolean
+          description: |
+            True khi CÓ ÍT NHẤT 1 block có confidence < threshold.
+            Version chỉ APPROVED khi requires_review=false HOẶC mọi block có
+            review_status ∈ {APPROVED, CORRECTED}.
+        supersedes_version_id: { type: [string, "null"] }
+        superseded_by_version_id: { type: [string, "null"] }
+        change_summary: { type: [string, "null"] }
         created_by: { type: string }
         created_at: { type: string, format: date-time }
 
@@ -146,10 +204,47 @@ components:
           enum: [OCR, EMBEDDING, INDEXING, REINDEX]
         status: { $ref: '#/components/schemas/JobStatus' }
         progress: { type: integer, minimum: 0, maximum: 100 }
-        error: { type: string, nullable: true }
-        started_at: { type: string, format: date-time, nullable: true }
-        finished_at: { type: string, format: date-time, nullable: true }
+        error: { type: [string, "null"] }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
+
+    OCRBlock:
+      type: object
+      required: [id, ocr_job_id, page_number, text, confidence, requires_review, review_status]
+      properties:
+        id: { type: string }
+        ocr_job_id: { type: string }
+        page_number: { type: integer, minimum: 1 }
+        bbox:
+          type: array
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
+          description: "[x_min, y_min, x_max, y_max] trong PDF coordinate"
+        text: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        requires_review:
+          type: boolean
+          description: |
+            True khi confidence < threshold (mặc định 0.9).
+            Cờ này quyết định version `requires_review=true`.
+        review_status:
+          $ref: '#/components/schemas/OCRReviewStatus'
+        reviewed_by: { type: [string, "null"] }
+        reviewed_at: { type: [string, "null"], format: date-time }
+        is_edited:
+          type: boolean
+          description: |
+            True khi `text` đã khác `original_text` (sửa lỗi).
+            Nên giữ cho compatibility, nhưng review mới dùng `review_status`.
+        edited_by: { type: [string, "null"] }
+        edited_at: { type: [string, "null"], format: date-time }
+        original_text: { type: [string, "null"] }
+        processing_time_ms: { type: integer, minimum: 0 }
 
     Citation:
       type: object
@@ -187,6 +282,74 @@ components:
               items: { $ref: '#/components/schemas/Citation' }
             has_sufficient_evidence: { type: boolean }
 
+    LoginResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data:
+          type: object
+          required: [access_token, expires_in, user]
+          properties:
+            access_token:
+              type: string
+              description: |
+                JWT access token. FE giữ trong memory, KHÔNG lưu localStorage.
+                Gắn vào `Authorization: Bearer <access_token>`.
+            expires_in:
+              type: integer
+              description: TTL của access token (giây).
+            user: { $ref: '#/components/schemas/User' }
+          # Refresh token KHÔNG ở đây — server set qua HttpOnly cookie `rt`.
+        cookie:
+          type: string
+          description: |
+            Server set cookie `rt=<refresh_token>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth`
+            trong response Set-Cookie header. FE tự động gửi cookie này khi gọi `/auth/refresh`.
+
+  # ----- Reusable responses (OpenAPI 3.1 yêu cầu Response Object riêng) -----
+  responses:
+    Unauthorized:
+      description: Chưa xác thực hoặc token hết hạn
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    Forbidden:
+      description: Thiếu permission
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    NotFound:
+      description: Resource không tồn tại
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    ValidationError:
+      description: Dữ liệu không hợp lệ
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    Conflict:
+      description: Conflict (duplicate, version cũ)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    PayloadTooLarge:
+      description: File vượt quá 50MB
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    UnsupportedMediaType:
+      description: MIME không hỗ trợ
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    RateLimited:
+      description: Quá nhiều request
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+
 paths:
   # -------- Auth --------
   /auth/login:
@@ -206,7 +369,37 @@ paths:
                 password: { type: string, minLength: 8 }
       responses:
         '200':
+          description: OK — server set refresh token cookie `rt`
+          headers:
+            Set-Cookie:
+              description: |
+                `rt=<refresh_token>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth;
+                Max-Age=604800` (7 ngày). Refresh token lưu rotation với session_id.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      security:
+        - refreshCookie: []
+      summary: Cấp access token mới, rotation refresh token
+      description: |
+        - Gửi refresh token qua cookie `rt` (HttpOnly).
+        - Server rotate: revoke token cũ, cấp token mới + cookie mới.
+        - Nếu phát hiện token cũ bị reuse (không khớp session_id / token family)
+          → revoke toàn bộ session, trả 401 + clear cookie.
+      responses:
+        '200':
           description: OK
+          headers:
+            Set-Cookie:
+              description: Cookie `rt` mới.
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -216,26 +409,39 @@ paths:
                   success: { type: boolean, enum: [true] }
                   data:
                     type: object
-                    required: [access_token, refresh_token, user]
+                    required: [access_token, expires_in]
                     properties:
                       access_token: { type: string }
-                      refresh_token: { type: string }
                       expires_in: { type: integer }
-                      user:
-                        type: object
-                        properties:
-                          id: { type: string }
-                          email: { type: string }
-                          full_name: { type: string }
-                          role:
-                            type: string
-                            enum: [admin, staff, student]
-                          department: { type: string, nullable: true }
-        '401':
-          description: Sai thông tin đăng nhập
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      security:
+        - refreshCookie: []
+      summary: Đăng xuất — server thu hồi refresh token và clear cookie
+      responses:
+        '204':
+          description: No Content — server clear cookie `rt`
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Trả thông tin user hiện tại
+      responses:
+        '200':
+          description: OK
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   # -------- Documents --------
   /documents:
@@ -271,11 +477,20 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/Document' }
-        '401': { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
     post:
       tags: [documents]
       summary: Upload tài liệu mới (trả về job, OCR chạy async)
+      description: |
+        - Header `Idempotency-Key: <uuid>` BẮT BUỘC.
+        - PDF ≤ 50MB, MIME = application/pdf, magic bytes %PDF-.
+        - Trả 202 Accepted + job_id (FE poll `/jobs/{id}`).
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, format: uuid }
       requestBody:
         required: true
         content:
@@ -287,7 +502,7 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: "PDF ≤ 50MB, MIME = application/pdf, magic bytes %PDF-"
+                  description: "PDF ≤ 50MB"
                 title: { type: string }
                 type:
                   type: string
@@ -300,17 +515,17 @@ paths:
                   items: { type: string }
                 change_summary:
                   type: string
-                  description: "Mô tả thay đổi so với phiên bản cũ (nếu supersede)"
                 supersedes_document_id:
                   type: string
-                  description: "Nếu đây là văn bản thay thế, truyền ID văn bản cũ"
       responses:
         '202':
           description: Accepted — job đã được queue
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UploadResponse' }
-        '403': { $ref: '#/components/schemas/Error' }
-        '413': { $ref: '#/components/schemas/Error' }
-        '415': { $ref: '#/components/schemas/Error' }
-        '422': { $ref: '#/components/schemas/Error' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }

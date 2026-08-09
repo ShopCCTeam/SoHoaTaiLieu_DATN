@@ -8,7 +8,7 @@ alwaysApply: false
 
 > Áp dụng cho Phase BE trở đi. Đã chốt stack ở `docs/adr/0001-backend-stack.md`.
 
-## 1. Nguyên tắn chung (bắt buộc)
+## 1. Nguyên tắc chung (bắt buộc)
 
 - **Layered Architecture**: `presentation` → `application` (use case) → `domain` (entity) → `infrastructure` (DB, MinIO, Redis).
 - **API Design**: RESTful, JSON, versioned URL (`/api/v1/...`).
@@ -145,9 +145,55 @@ Lý do: OCR pipeline mất 30s–5 phút cho 1 PDF 50 trang. Trả Document ngay
 
 ## 4. Idempotency
 
-- Mọi POST mutation **BẠN BẮT BUỘC** nhận header `Idempotency-Key: <uuid>`.
-- Nếu cùng key đã xử lý trong 24 giờ → trả lại response cũ (không tạo resource mới).
-- Implementation: lưu `(idempotency_key, response_body, status_code, created_at)` trong Redis (TTL 24h).
+> Mục đích: chống duplicate khi client retry (network fail, double-click). KHÔNG dùng cho mọi POST.
+
+### 4.1 BẮT BUỘC `Idempotency-Key` header
+
+| Endpoint | Bắt buộc | Lý do |
+|---|---|---|
+| `POST /documents` (upload) | ✅ | Tránh tạo 2 document + 2 job khi user double-click |
+| `POST /documents/{id}/versions` (upload version) | ✅ | Tránh tạo 2 version |
+| `POST /documents/{id}/versions/{vid}/ocr` (trigger OCR) | ✅ | Tránh trigger 2 job |
+| `POST /admin/model-versions/{id}/activate` | ✅ | Toggle trạng thái model — KHÔNG idempotent nếu không có key |
+| `POST /jobs/{id}/cancel` | ✅ | Tránh cancel 2 lần cùng job |
+| `POST /admin/model-versions/{id}/reindex` | ✅ | Tránh enqueue 2 batch reindex |
+
+### 4.2 KHÔNG yêu cầu `Idempotency-Key`
+
+| Endpoint | Lý do loại |
+|---|---|
+| `POST /auth/login` | Sai password ≠ thành công; không nên cache response. |
+| `POST /auth/refresh` | Server đã có rotation + session_id để chống reuse. Cache response sẽ phá rotation. |
+| `POST /auth/logout` | Idempotent về bản chất (revoke rồi → revoke lại OK). |
+| `POST /chat/query` | Query động, không có resource để dedupe; LLM output thay đổi mỗi call. |
+| `POST /search` | Search thuần (read-only). |
+| `GET /...` | Read-only, không cần. |
+
+### 4.3 Triển khai
+
+```python
+# apps/api/app/core/idempotency.py
+import hashlib
+import json
+from datetime import datetime, timedelta
+
+IDEMPOTENCY_TTL = timedelta(hours=24)
+
+def idempotency_key_hash(method: str, path: str, body: bytes, key: str) -> str:
+    """Hash để Redis key, KHÔNG để lộ raw key ra log."""
+    payload = f"{method}:{path}:{key}".encode() + hashlib.sha256(body).hexdigest().encode()
+    return hashlib.sha256(payload).hexdigest()
+
+# Redis key: idemp:{hash} → JSON {status_code, response_body, created_at}
+# TTL: 24h. Nếu cùng key → trả response cũ.
+```
+
+Quy tắc:
+
+- **Mọi response cache bởi idempotency key** được xem là nhạy cảm: KHÔNG lưu token, password, PII.
+- **Đối với upload**: chỉ cache `(job_id, status)` chứ không cache toàn bộ response (tránh rò rỉ URL nội bộ).
+- **Request body khác + cùng key** → 422 `IDEMPOTENCY_KEY_MISMATCH` (theo chuẩn IETF draft).
+- **Client phải đảm bảo** key là UUID v7 (sortable) hoặc UUID v4 + timestamp.
 
 ## 5. Security Checklist (bắt buộc)
 
@@ -194,7 +240,8 @@ celery_app.conf.update(
 # apps/api/app/core/errors.py
 from fastapi import HTTPException, status
 from pydantic import BaseModel
-from uuid import uuid4
+import uuid7  # RFC 9562, sortable, không leak timestamp như uuid1
+# pip install uuid7
 
 class ProblemDetail(BaseModel):
     type: str
@@ -220,7 +267,7 @@ class APIError(HTTPException):
             status=status_code,
             detail=detail,
             code=code,
-            request_id=str(uuid4()),
+            request_id=str(uuid7.uuid7()),
             errors=errors,
         )
         super().__init__(status_code=status_code, detail=problem.model_dump())

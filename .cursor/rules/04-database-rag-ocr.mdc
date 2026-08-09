@@ -25,9 +25,9 @@ alwaysApply: true
 ## Schema chính (đã chốt)
 - `users` (id, email UNIQUE, password_hash, full_name, role, department, is_active, created_at, updated_at)
 - `documents` (id, title, type, status, scope, code_number, issuing_body, effective_from, effective_to, latest_version_id, author_id FK, tags TEXT[], created_at, updated_at, deleted_at)
-- `document_versions` (id, document_id FK, version_number, status, file_url, file_size, checksum, ocr_status, supersedes_version_id, superseded_by_version_id, created_by FK, change_summary, created_at, deleted_at)
+- `document_versions` (id, document_id FK, version_number, status, file_url, file_size, checksum, ocr_status, requires_review BOOL, supersedes_version_id, superseded_by_version_id, created_by FK, change_summary, created_at, deleted_at)
 - `ocr_jobs` (id, document_version_id FK, status, progress, started_at, finished_at, error, engine, model_version_id FK, retry_count, idempotency_key UNIQUE)
-- `ocr_blocks` (id, ocr_job_id FK, page_number, bbox JSONB, text, confidence, is_edited, edited_by FK, edited_at, original_text, processing_time_ms)
+- `ocr_blocks` (id, ocr_job_id FK, page_number, bbox JSONB, text, confidence, requires_review BOOL, review_status ENUM(PENDING,APPROVED,CORRECTED), reviewed_by FK NULL, reviewed_at TIMESTAMPTZ NULL, is_edited BOOL, edited_by FK NULL, edited_at TIMESTAMPTZ NULL, original_text TEXT NULL, processing_time_ms)
 - `embeddings` (id, document_version_id FK, chunk_id, vector vector(1024), text, metadata JSONB, model_version_id FK)
 - `chat_messages` (id, user_id FK, role, content, citations JSONB, created_at)
 - `model_versions` (id, name, version, dimension, accuracy_score, cer, wer, is_active, checkpoint_path, dataset_checksum, created_at)
@@ -52,17 +52,21 @@ alwaysApply: true
 - **Engine**: PaddleOCR (primary) với model `model_versions.is_active = true`.
 - **Trigger**: tự động khi `POST /documents` trả về job.
 - **Flow**: load PDF từ MinIO → render trang → preprocess (deskew, denoise) → PaddleOCR detect+recognize → lưu `ocr_blocks` rows.
-- **Output per block**: `text`, `bbox`, `confidence`, `processing_time_ms`.
-- **Review**: nếu `confidence < 0.9` → đánh dấu `needsReview=true` ở version.
-- **Approval**: version APPROVED chỉ khi `needsReview=false` hoặc tất cả block có `is_edited=true`.
+- **Output per block**: `text`, `bbox`, `confidence`, `processing_time_ms`, `requires_review`, `review_status`.
+- **Review trigger**: nếu `confidence < threshold` (mặc định 0.9, config được ở `OCR_DEFAULT_CONFIDENCE_THRESHOLD`) → set `requires_review=true` trên block đó.
+- **Version rollup**: `document_versions.requires_review = (EXISTS block với requires_review=true)`.
+- **Approval** (xem chi tiết ở `docs/domain/document-lifecycle.md`):
+  - Version được APPROVED khi `requires_review=false` **HOẶC** mọi block có `requires_review=true` đều có `review_status ∈ {APPROVED, CORRECTED}`.
+  - Block chính xác (confidence ≥ threshold) → không cần review, mặc định OK.
+  - Block sai → staff chọn APPROVED (giữ nguyên text) hoặc CORRECTED (sửa text + `original_text` lưu bản gốc).
 
 ### Training (offline — KHÔNG chạy qua API)
-- **Engine**: PaddleOCR Vietnamese recognizer fine-tune bằng dữ liệu riêng.
+- **Engine**: PaddleOCR Vietnamese recognizer fine-tune bằng dữ liệu riêng (PaddlePaddle, KHÔNG TensorFlow).
 - **Train/val/test split**: **theo tài liệu** (document-level), KHÔNG random theo trang/dòng → tránh data leakage.
 - **Test set KHÔNG xuất hiện** trong train hoặc validation ở bất kỳ bước nào.
 - **Luôn so sánh** baseline pretrained vs fine-tuned trong report.
 - **Metrics bắt buộc**: CER (Character Error Rate), WER (Word Error Rate), processing_time_ms/page, accuracy %.
-- **Mỗi OCR block phải lưu**: `ocr_engine`, `model_version_id`, `page_number`, `confidence`, `processing_time_ms`, `bbox`.
+- **Mỗi OCR block phải lưu**: `bbox`, `confidence`, `processing_time_ms`. `ocr_engine` và `model_version_id` lưu ở `ocr_jobs` (cha của block) — KHÔNG lặp trên mỗi block để tiết kiệm storage và đảm bảo consistency.
 - **Tesseract CHỈ là fallback runtime** khi PaddleOCR fail. KHÔNG dùng để đánh giá model fine-tune.
 - **Mỗi model phải có MODEL_CARD.md**: checkpoint path, config, charset, CER/WER, dataset checksum, training date.
 
@@ -82,7 +86,6 @@ make ocr-eval         # So sánh baseline vs fine-tuned
 ## Ref
 - Skill `.skills/langchain-local-pdf-rag-pipeline/` cho RAG.
 - Skill `.skills/local-pdf-rag-pipeline-with-langchain-and-ollama/` cho Ollama variant.
-- Skill `.skills/postgresql-inventory-and-price-tracking-schema/` cho pattern schema.
-- Skill `.skills/ocr-text-to-wikimedia-source-converter/` cho OCR text processing.
-- Skill `.skills/tensorflow-mirroredstrategy-inference-with-transformers/` cho training infrastructure.
-- ADR-001 (sắp viết): lý do chọn pgvector thay vì Qdrant.
+- Skill `.skills/postgres-sql-generator-from-english/` cho pattern schema.
+- `docs/adr/0001-backend-stack.md` — lý do chọn Python + pgvector (không dùng Qdrant).
+- `docs/adr/README.md` — cách viết ADR mới nếu cần thay đổi kiến trúc.

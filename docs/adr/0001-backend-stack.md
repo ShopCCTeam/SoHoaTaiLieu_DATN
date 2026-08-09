@@ -31,7 +31,7 @@ Dự án cần một backend cho hệ thống số hoá tài liệu CTSV với c
 
 ## Lý do chọn pgvector thay vì Qdrant
 
-**Đã cân nhắc Qdrant** (vector DB riêng). Với dataset ~200 PDF × ~10 pages × ~5 chunks = ~10K vector, pgvector cho kết quả retrieval ngang ngửa Qdrant với độ trễ < 50ms.
+**Đã cân nhắc Qdrant** (vector DB riêng). Với dataset ~200 PDF × ~10 pages × ~5 chunks = ~10K vector, lý thuyết pgvector cho kết quả retrieval ngang ngửa Qdrant. **Đây là GIẢ ĐỊNH cần benchmark** với dữ liệu thật của dự án (HNSW `ef_construction`, `m`, `ef_search`) trước khi kết luận; chưa có số liệu thực nghiệm trong repo này.
 
 **pgvector thắng vì**:
 - 1 DB duy nhất → backup, migration, audit, RBAC đều ở một chỗ.
@@ -64,7 +64,7 @@ Dự án cần một backend cho hệ thống số hoá tài liệu CTSV với c
 | **Node.js + Fastify** | Phải duy trì 2 ecosystem (Node cho API + Python cho AI). Vibe coding dễ tạo 2 kiến trúc song song. |
 | **Microservice tách riêng (API + AI service + Vector DB)** | Over-engineer cho đồ án 3 tháng. Phức tạp deployment. |
 | **MongoDB** | Mất RBAC row-level mạnh của PostgreSQL. Vector search yếu hơn pgvector. |
-| **Qdrant riêng** | Phải đồng bộ metadata + vector ở 2 nơi. Chưa có lợi ích rõ ràng ở 10K vector. |
+| **Qdrant riêng** | Phải đồng bộ metadata + vector ở 2 nơi. Chưa có lợi ích rõ ràng ở ~10K vector (cần benchmark). |
 | **OpenAI API thay Ollama** | Tốn chi phí, cần internet, không phù hợp demo offline. |
 
 ## Tài liệu tham chiếu

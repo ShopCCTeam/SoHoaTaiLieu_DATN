@@ -23,13 +23,21 @@
 - BE stack (chốt): **Python + FastAPI + pgvector** (xem `docs/adr/0001-backend-stack.md`).
 - Tất cả rule `alwaysApply: true` trừ 02 (globs FE) và 03 (globs BE).
 
-**Sau review P0/P1 (commit `45ab6d8`, `5ed884c`, scaffold đang chuẩn bị)**:
+**Các commit theo review (đã merge)**:
 
-- ✅ Commit 1 — `docs: chốt hợp đồng API & domain`: 6 file docs (OpenAPI, RBAC, lifecycle, citation, root README).
-- ✅ Commit 2 — `chore: siết chặt governance & CI`: rule 08 mới, pgvector, .gitignore mở rộng, CI workflow, email domain, scripts.
-- ⏳ Commit 3 — `chore: scaffold backend foundation`: folder skeleton rỗng + ADR-0001 + Makefile + MODEL_CARD template.
+| # | SHA | Commit | Nội dung chính |
+|---|---|---|---|
+| 1 | `45ab6d8` | `docs: chốt hợp đồng API & domain` | 6 file docs (OpenAPI, RBAC, lifecycle, citation, root README). |
+| 2 | `5ed884c` | `chore: siết chặt governance & CI` | rule 08 mới, pgvector, .gitignore mở rộng, CI workflow, email domain, scripts. |
+| 3 | `2888d86` | `chore: scaffold backend foundation` | folder skeleton rỗng + ADR-0001 + Makefile + MODEL_CARD template. |
+| 4 | `a847ce4` | `chore: đồng bộ foundation theo review` | RFC 7807 trong rule 03, ADR rename, PROGRESS update, +23 tests (RBAC/apiClient/file). |
 
-Kết quả: foundation hoàn tất, sẵn sàng cho Phase 0 BE code thật khi user ra lệnh.
+**Trạng thái Foundation (sau commit `a847ce4`)**:
+- ✅ Stack Python + FastAPI + pgvector đã chốt (xem `docs/adr/0001-backend-stack.md`).
+- ✅ API contract OpenAPI 3.1 + RFC 7807 đã viết (sẽ validate bằng Redocly ở commit kế).
+- ✅ Folder skeleton `apps/api/`, `services/worker/`, `services/ocr-training/`, `packages/contracts/`, `infra/docker/` đã có (chỉ README + .gitkeep, chưa code).
+- ✅ Quality gate FE: `pnpm check` (lint + typecheck + test 26/26 + build) PASS.
+- ⏸ BE code thật chưa viết — **chờ lệnh "Bắt đầu Phase 0 BE"** từ user.
 
 ---
 

@@ -12,6 +12,26 @@ concurrency:
 
 jobs:
   # =========================================================
+  # OpenAPI contract validation (chạy trước, fail-fast)
+  # =========================================================
+  openapi:
+    name: OpenAPI Contract Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Redocly CLI
+        run: npm install -g @redocly/cli
+
+      - name: Lint docs/api/openapi.yaml
+        run: redocly lint docs/api/openapi.yaml
+
+  # =========================================================
   # Frontend quality gate
   # =========================================================
   web:

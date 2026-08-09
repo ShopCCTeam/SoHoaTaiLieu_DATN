@@ -1,12 +1,7 @@
 # =========================================================
 # Secrets — KHÔNG commit bất kỳ file env nào ngoài .example
 # =========================================================
-.env
-.env.local
-.env.*.local
-.env.development
-.env.production
-.env.test
+.env*
 !.env.example
 !.env.*.example
 
