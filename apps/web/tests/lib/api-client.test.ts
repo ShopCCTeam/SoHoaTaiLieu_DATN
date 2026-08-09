@@ -21,6 +21,7 @@ describe("apiClient — routing mock vs live mode", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ success: true, data: [] }),
+      headers: new Headers(),
     } as Response);
 
     const { apiClient } = await import("@/lib/api/client");
@@ -46,6 +47,7 @@ describe("apiClient — routing mock vs live mode", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ success: true, data: [] }),
+      headers: new Headers(),
     } as Response);
 
     const { apiClient } = await import("@/lib/api/client");
@@ -64,6 +66,7 @@ describe("apiClient — routing mock vs live mode", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ success: true, data: { id: "u1" } }),
+      headers: new Headers(),
     } as Response);
 
     const { apiClient } = await import("@/lib/api/client");
@@ -87,9 +90,11 @@ describe("apiClient — routing mock vs live mode", () => {
       ok: false,
       status: 403,
       json: async () => ({ success: false, code: "FORBIDDEN", message: "Cấm truy cập" }),
+      headers: new Headers(),
     } as Response);
 
-    const { apiClient, ApiError } = await import("@/lib/api/client");
+    const { apiClient } = await import("@/lib/api/client");
+    const { ApiError } = await import("@/lib/api/types");
 
     let caught: unknown;
     try {
@@ -107,7 +112,8 @@ describe("apiClient — routing mock vs live mode", () => {
 
     mockFetch.mockRejectedValueOnce(new Error("Network request failed"));
 
-    const { apiClient, ApiError } = await import("@/lib/api/client");
+    const { apiClient } = await import("@/lib/api/client");
+    const { ApiError } = await import("@/lib/api/types");
 
     let caught: unknown;
     try {
@@ -117,6 +123,6 @@ describe("apiClient — routing mock vs live mode", () => {
     }
 
     expect(caught).toBeInstanceOf(ApiError);
-    expect((caught as InstanceType<typeof ApiError>).statusCode).toBe(500);
+    expect((caught as InstanceType<typeof ApiError>).code).toBe("INTERNAL");
   });
 });

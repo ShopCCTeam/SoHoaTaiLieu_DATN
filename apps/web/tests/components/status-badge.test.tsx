@@ -4,24 +4,24 @@ import React from "react";
 import { StatusBadge } from "@/components/documents/status-badge";
 
 describe("StatusBadge Component", () => {
-  it("renders correctly for approved status", () => {
-    render(<StatusBadge status="approved" />);
+  it("renders correctly for APPROVED status", () => {
+    render(<StatusBadge status="APPROVED" />);
     const badge = screen.getByTestId("status-badge");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("Đã Ban Hành");
   });
 
-  it("renders correctly for review status", () => {
-    render(<StatusBadge status="review" />);
+  it("renders correctly for UNDER_REVIEW status", () => {
+    render(<StatusBadge status="UNDER_REVIEW" />);
     const badge = screen.getByTestId("status-badge");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("Chờ Hiệu Chỉnh");
   });
 
-  it("renders correctly for processing status", () => {
-    render(<StatusBadge status="processing" />);
+  it("renders correctly for DRAFT status", () => {
+    render(<StatusBadge status="DRAFT" />);
     const badge = screen.getByTestId("status-badge");
     expect(badge).toBeInTheDocument();
-    expect(badge).toHaveTextContent("Đang Xử Lý OCR");
+    expect(badge).toHaveTextContent("Bản Nháp");
   });
 });

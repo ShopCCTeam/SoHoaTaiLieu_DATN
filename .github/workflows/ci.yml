@@ -94,8 +94,9 @@ jobs:
 
       - name: Guard pyproject.toml
         run: |
-          if [ ! -f apps/api/pyproject.toml ]; then
-            echo "::error::apps/api/pyproject.toml chưa tồn tại — Phase 0 BE chưa bắt đầu."
+          # working-directory = apps/api, check tương đối với cwd
+          if [ ! -f pyproject.toml ]; then
+            echo "::error::pyproject.toml chưa tồn tại ở apps/api/pyproject.toml — Phase 0 BE chưa bắt đầu."
             exit 1
           fi
 

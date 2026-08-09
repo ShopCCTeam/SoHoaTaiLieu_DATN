@@ -4,8 +4,14 @@ info:
   version: 1.0.0-draft
   description: |
     API RESTful cho hệ thống số hoá & quản lý tài liệu Công tác Sinh viên.
-    Tài liệu này là **draft** trong giai đoạn foundation. Sau khi FastAPI code,
-    file sẽ được generate tự động bằng `fastapi.openapi_utils`.
+    File này là **contract chuẩn** (single source of truth).
+
+    FastAPI-generated `openapi.json` chỉ là artifact để đối chiếu.
+    **KHÔNG** được ghi đè file này từ implementation. Mọi thay đổi endpoint
+    phải sửa YAML trước, rồi mới sửa code BE.
+
+    Khi CI so sánh hai spec, dùng `oasdiff` (semantic diff) thay vì raw JSON
+    diff — thứ tự field, metadata có thể khác nhưng semantic phải khớp.
 
     ## Quy ước
 

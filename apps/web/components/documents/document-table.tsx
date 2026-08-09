@@ -11,7 +11,7 @@ import {
   flexRender,
   ColumnDef,
 } from "@tanstack/react-table";
-import { Document, DocumentStatus, DocumentType } from "@/lib/api/types";
+import { Document, DocumentStatus } from "@/lib/api/types";
 import { StatusBadge } from "./status-badge";
 import { formatDate, formatFileSize } from "@/lib/utils/format";
 import {
@@ -115,7 +115,7 @@ export const DocumentTable: React.FC<DocumentTableProps> = ({
           const doc = row.original;
           return (
             <div className="flex items-center justify-end gap-1.5">
-              {doc.status === "review" ? (
+              {doc.status === "UNDER_REVIEW" ? (
                 <Link
                   href={`/documents/${doc.id}/review`}
                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500 text-white font-bold text-xs hover:bg-amber-600 transition-all shadow-sm"

@@ -20,8 +20,12 @@ export default function DashboardPage() {
   const { user } = useAuthStore();
 
   const totalDocs = MOCK_DOCUMENTS.length;
-  const pendingReviewCount = MOCK_DOCUMENTS.filter((d) => d.status === "review" || d.status === "processing").length;
-  const approvedCount = MOCK_DOCUMENTS.filter((d) => d.status === "approved").length;
+  const pendingReviewCount = MOCK_DOCUMENTS.filter(
+    (d) => d.status === "UNDER_REVIEW" || d.status === "DRAFT",
+  ).length;
+  const approvedCount = MOCK_DOCUMENTS.filter(
+    (d) => d.status === "APPROVED",
+  ).length;
 
   const stats = [
     {
@@ -186,10 +190,10 @@ export default function DashboardPage() {
                   </td>
                   <td className="py-3.5 px-3 text-right">
                     <Link
-                      href={doc.status === "review" ? `/documents/${doc.id}/review` : `/documents/${doc.id}`}
+                      href={doc.status === "UNDER_REVIEW" ? `/documents/${doc.id}/review` : `/documents/${doc.id}`}
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-primary-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-[11px] hover:bg-primary-100 dark:hover:bg-slate-700 transition-all shadow-sm"
                     >
-                      <span>{doc.status === "review" ? "Hiệu chỉnh OCR" : "Chi tiết"}</span>
+                      <span>{doc.status === "UNDER_REVIEW" ? "Hiệu chỉnh OCR" : "Chi tiết"}</span>
                     </Link>
                   </td>
                 </tr>

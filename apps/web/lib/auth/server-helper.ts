@@ -1,17 +1,49 @@
-import { NextRequest } from "next/server";
-import { DEMO_USERS } from "@/lib/auth/session";
-
 /**
- * Server-side helper to extract mock user from request headers
- * DEMO ONLY — Replaced when real FastAPI backend with JWT validation is connected
+ * Server-side mock auth helper.
+ *
+ * Quy tắc mock auth:
+ * - Bearer token không parse được → null → caller phải return 401.
+ * - Token sai / hết hạn → null → 401.
+ * - KHÔNG BAO GIỜ fallback admin. Mọi cố ý security bypass phải fail đúng cách
+ *   để test phát hiện được.
+ *
+ * Khi BE thật chạy, file này không còn — middleware sẽ verify JWT qua JWKS.
  */
-export function getMockUserFromRequest(request: NextRequest) {
+import { parseMockToken, DEMO_USERS } from "./mock-tokens";
+import type { User } from "../api/types";
+
+export function getMockUserFromRequest(request: Request): User | null {
   const authHeader = request.headers.get("authorization") || "";
-  if (authHeader.includes("staff")) {
-    return DEMO_USERS.staff;
+  if (!authHeader.startsWith("Bearer ")) return null;
+  const token = authHeader.slice("Bearer ".length);
+  const parsed = parseMockToken(token);
+  if (!parsed) return null;
+  const demoUser = DEMO_USERS[parsed.role];
+  if (!demoUser || demoUser.email !== parsed.email) return null;
+  // Map sang User domain (không expose password).
+  return {
+    id: demoUser.id,
+    email: demoUser.email,
+    fullName: demoUser.fullName,
+    role: demoUser.role,
+    department: demoUser.department,
+    avatarUrl: demoUser.avatarUrl,
+  };
+}
+
+export function requireMockUser(request: Request): { user: User } | { problem: import("../api/types").ProblemDetail } {
+  const user = getMockUserFromRequest(request);
+  if (!user) {
+    return {
+      problem: {
+        type: "http://localhost:3000/problems/unauthorized",
+        title: "Chưa xác thực",
+        status: 401,
+        detail: "Token không hợp lệ hoặc đã hết hạn.",
+        code: "UNAUTHORIZED",
+        requestId: crypto.randomUUID(),
+      },
+    };
   }
-  if (authHeader.includes("student")) {
-    return DEMO_USERS.student;
-  }
-  return DEMO_USERS.admin;
+  return { user };
 }

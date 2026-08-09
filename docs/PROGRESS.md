@@ -4,6 +4,50 @@
 
 ---
 
+## 2026-08-09 — Phase 0 BE + FE Contract Sync
+
+**Việc đã làm**:
+
+- **Fix theo đợt review "chưa thể GO hoàn toàn"**:
+  - Sửa OpenAPI description: chốt `openapi.yaml` là contract chuẩn, KHÔNG ghi đè từ implementation, dùng `oasdiff` để so sánh runtime schema.
+  - Sửa CI guard `pyproject.toml` (đường dẫn tương đối với working-dir).
+  - **Tạo `packages/contracts` với `openapi-typescript`**: generate TypeScript types trực tiếp từ `docs/api/openapi.yaml`. FE import `@ctsv/contracts` thay vì khai báo tay.
+  - **Viết lại `apps/web/lib/api/types.ts`** dùng schema đã chốt (UPPER_SNAKE enum, snake_case field).
+  - **`apps/web/lib/api/mappers.ts`** mới: snake_case DTO → camelCase domain model (FE-side). Mọi query hook đi qua mapper.
+  - **Mock auth fix**:
+    - Bỏ fallback admin khi email không tồn tại → 401 RFC 7807.
+    - Xác thực password (`Demo@2026`).
+    - Mock route `auth/login` trả `access_token` + `expires_in` + `user` + set HttpOnly cookie `rt`.
+    - `getMockUserFromRequest()` exact token match (base64url decode role:email), KHÔNG substring `staff`/`student`.
+  - **`apiClient` rewrite**: unwrap `{success, data}` envelope; error response nhận diện `application/problem+json` → ném `ApiError` chứa `ProblemDetail`.
+  - Tất cả mock route (auth/me, documents, search, chat/query, admin/users, admin/models): trả envelope shape khớp OpenAPI.
+  - Component FE (status-badge, document-table, metadata-form, upload-dropzone, version-list, chat-thread, dashboard) đã migrate sang enum mới.
+  - Fixtures (`MOCK_DOCUMENTS`/`MOCK_VERSIONS`/`MOCK_OCR_BLOCKS`) đồng bộ theo UPPER_SNAKE enum + bổ sung OCR review fields + bbox PDF coordinate.
+
+- **Tạo Phase 0 BE scaffold** (`apps/api/`):
+  - `pyproject.toml`: FastAPI + Pydantic v2 + SQLAlchemy + Alembic + Celery + boto3 + uv.
+  - `app/main.py`: app factory + health checks (`/health/live`, `/health/ready`).
+  - `app/core/config.py`: Pydantic Settings (12-factor, `.env` load, SecretStr).
+  - `app/core/errors.py`: RFC 7807 Problem Details + ApiError + `register_exception_handlers`.
+  - `app/core/logging.py`: structlog JSON, 1 event/line.
+  - `app/core/middleware.py`: RequestIdMiddleware (uuid v4 cho Phase 0, uuid v7 ở Python 3.14+).
+  - 20 tests pytest pass; ruff + mypy strict pass.
+  - `tests/test_config.py`, `tests/test_errors.py`, `tests/test_health.py`.
+
+**Trạng thái sau commit này**:
+- ✅ FE TypeScript types = 1:1 với OpenAPI (sinh tự động).
+- ✅ FE queries chạy qua mapper (snake→camel).
+- ✅ Mock auth: no fallback admin, RFC 7807 401, HttpOnly cookie.
+- ✅ `pnpm check` PASS (FE 26/26 test + lint + typecheck + openapi:lint + build).
+- ✅ `pnpm api:test` PASS (BE 20/20 test + ruff + mypy).
+- ✅ Có thể bắt đầu Phase 1: `/auth/login` + Alembic init + `/documents` GET.
+
+**Không còn "chỉ cần đổi env, không cần refactor FE"** — FE đã có lớp contract/mapper chuẩn.
+
+**Commit kế tiếp**: `phase-1-auth-db` (viết `/auth/login` thật + Alembic init + users table).
+
+---
+
 ## 2026-08-09 — Khởi tạo Workspace Rules & Skills
 
 **Việc đã làm**:

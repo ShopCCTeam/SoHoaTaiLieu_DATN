@@ -46,12 +46,10 @@ export function formatFileSize(bytes?: number): string {
 
 export function getStatusLabel(status: DocumentStatus): string {
   const map: Record<DocumentStatus, string> = {
-    draft: "Bản Nháp",
-    processing: "Đang Xử Lý OCR",
-    review: "Chờ Hiệu Chỉnh",
-    approved: "Đã Ban Hành",
-    expired: "Hết Hiệu Lực",
-    failed: "Lỗi Xử Lý",
+    DRAFT: "Bản Nháp",
+    UNDER_REVIEW: "Chờ Hiệu Chỉnh",
+    APPROVED: "Đã Ban Hành",
+    ARCHIVED: "Lưu Trữ",
   };
   return map[status] || status;
 }
@@ -63,47 +61,33 @@ export function getStatusBadgeVariant(status: DocumentStatus): {
   dotClass: string;
 } {
   switch (status) {
-    case "approved":
+    case "APPROVED":
       return {
         bgClass: "bg-emerald-500/10",
         textClass: "text-emerald-700 dark:text-emerald-400",
         borderClass: "border-emerald-500/20",
         dotClass: "bg-emerald-500",
       };
-    case "review":
+    case "UNDER_REVIEW":
       return {
         bgClass: "bg-amber-500/10",
         textClass: "text-amber-700 dark:text-amber-400",
         borderClass: "border-amber-500/20",
         dotClass: "bg-amber-500",
       };
-    case "processing":
-      return {
-        bgClass: "bg-pink-500/10",
-        textClass: "text-pink-700 dark:text-pink-400",
-        borderClass: "border-pink-500/20",
-        dotClass: "bg-pink-500 animate-pulse",
-      };
-    case "draft":
+    case "DRAFT":
       return {
         bgClass: "bg-slate-500/10",
         textClass: "text-slate-700 dark:text-slate-400",
         borderClass: "border-slate-500/20",
         dotClass: "bg-slate-400",
       };
-    case "expired":
+    case "ARCHIVED":
       return {
         bgClass: "bg-rose-500/10",
         textClass: "text-rose-700 dark:text-rose-400",
         borderClass: "border-rose-500/20",
         dotClass: "bg-rose-500",
-      };
-    case "failed":
-      return {
-        bgClass: "bg-red-500/10",
-        textClass: "text-red-700 dark:text-red-400",
-        borderClass: "border-red-500/20",
-        dotClass: "bg-red-500",
       };
   }
 }

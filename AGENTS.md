@@ -8,17 +8,20 @@
 **Tên**: Hệ thống Số hoá & Quản lý Tài liệu Công tác Sinh viên
 **Stack**: Next.js 14 (Frontend) + FastAPI / Python 3.11 (Backend) — đã chốt ở ADR-0001.
 **Tính năng cốt lõi**: OCR (PaddleOCR/Tesseract) + RAG (LangChain + BGE-M3 + Ollama) + RBAC 3 roles.
-**Repo**: `E:\SoHoaTaiLieu_DATN` (monorepo pnpm workspaces).
+**Repo**: `E:\SoHoaTaiLieu_DATN` (monorepo pnpm workspaces + uv cho apps/api).
 
 ## Cấu trúc repo
 
 ```
 SoHoaTaiLieu_DATN/
 ├── apps/
-│   └── web/                    ← Next.js 14 Frontend (F0-F6 đã xong, đang chờ review)
+│   ├── web/                    ← Next.js 14 Frontend (F0-F6 + contract sync xong)
+│   └── api/                    ← FastAPI Backend (Phase 0 scaffold)
+├── packages/
+│   └── contracts/              ← OpenAPI → TypeScript types (auto-generated)
 ├── docs/                       ← tài liệu (PROGRESS.md, walkthrough, ADRs)
 ├── .skills/                    ← 27 Agent Skill đã cài (xem rule 07-skill-activation.mdc)
-├── .cursor/rules/              ← 8 rule file (xem bên dưới)
+├── .cursor/rules/              ← 9 rule file (xem bên dưới)
 └── AGENTS.md                   ← file này
 ```
 
@@ -38,12 +41,13 @@ SoHoaTaiLieu_DATN/
 
 ## Trạng thái hiện tại
 
-- ✅ Frontend Phase F0–F6 đã xong, qua review & fix 4 MUST-FIX, lint/build/test pass.
-- ✅ Foundation backend đã chốt (ADR-0001, OpenAPI, RBAC, lifecycle, CI workflow).
-- ⏸ Phase 0 BE chưa bắt đầu (chờ lệnh "Bắt đầu Phase 0 BE").
+- ✅ Frontend Phase F0–F6 + contract sync (sinh types từ OpenAPI + mapper snake↔camel + mock auth không fallback admin + RFC 7807 401 + HttpOnly cookie).
+- ✅ Phase 0 BE scaffold: FastAPI app + Pydantic Settings + RFC 7807 errors + structlog JSON + health checks + 20 tests + ruff/mypy clean.
 - ✅ 27 Agent Skill đã cài.
 - ✅ 9 Project Rule đã thiết lập (rule 00–08).
 - 📖 Đọc tiến độ chi tiết ở `docs/PROGRESS.md`.
+
+**Sẵn sàng Phase 1 BE**: Auth thật + Alembic init + `/documents` GET.
 
 ## Tech stack cố định (KHÔNG thay đổi khi chưa có ADR mới)
 
@@ -80,23 +84,25 @@ pnpm build            # Production build
 pnpm lint             # ESLint
 pnpm typecheck        # tsc --noEmit
 
+# BE (uv-managed)
+cd apps/api
+uv sync --extra dev
+uv run uvicorn app.main:app --reload --port 8000
+uv run pytest
+uv run ruff check app tests
+uv run mypy app
+
+# Contracts (FE–BE shared types)
+pnpm --filter @ctsv/contracts generate
+
 # Workspace
 pnpm install
-pnpm -r build         # build tất cả apps
-pnpm -r test          # test tất cả apps
-pnpm check            # lint + typecheck + test
-
-# Backend (sau khi Phase 0 BE có code)
-cd apps/api
-uv sync
-uv run pytest
-uv run ruff check .
-uv run mypy app
+pnpm check            # FE lint + typecheck + test + build + OpenAPI lint + BE test/ruff/mypy
 ```
 
 ## Ghi chú quan trọng
 
 - **Ngôn ngữ giao tiếp**: 100% tiếng Việt với user. Code identifier tiếng Anh.
-- **Không commit** file `.env`, `node_modules/`, `.next/`, `data/**`, `models/**`, file PDF mẫu, model checkpoint.
+- **Không commit** file `.env*`, `node_modules/`, `.next/`, `data/**`, `models/**`, file PDF mẫu, model checkpoint.
 - **Mỗi commit = 1 concern**. Frontend/Backend tách commit khi không coupling.
-- **Trước khi merge**: chạy `pnpm check` (lint + typecheck + test) + build + đọc `docs/PROGRESS.md`.
+- **Trước khi merge**: chạy `pnpm check` (lint + typecheck + test + openapi:lint + build + api:test/ruff/mypy) + đọc `docs/PROGRESS.md`.

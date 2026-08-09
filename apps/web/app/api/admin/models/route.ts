@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMockUserFromRequest } from "@/lib/auth/server-helper";
+import { requireMockUser } from "@/lib/auth/server-helper";
+import { problemResponse } from "@/lib/api/problem-response";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 /* DEMO ONLY — Replaced when real FastAPI Admin Models endpoint is connected */
 
 export async function GET(request: NextRequest) {
-  const user = getMockUserFromRequest(request);
+  const auth = requireMockUser(request);
+  if ("problem" in auth) {
+    return problemResponse(
+      auth.problem.status,
+      auth.problem.code,
+      auth.problem.title,
+      auth.problem.detail,
+      auth.problem.requestId,
+    );
+  }
 
-  if (user.role !== "admin") {
-    return NextResponse.json(
-      { success: false, message: "403 Forbidden — Chỉ Admin mới có quyền quản lý Models." },
-      { status: 403 }
+  if (auth.user.role !== "admin") {
+    return problemResponse(
+      403,
+      "FORBIDDEN",
+      "Chỉ Admin mới có quyền quản lý Models.",
     );
   }
 
@@ -20,19 +31,19 @@ export async function GET(request: NextRequest) {
       id: "mod_01",
       name: "BGE-M3 Multilingual Vector Embeddings",
       version: "v2.1.0",
-      status: "active",
+      is_active: true,
       dimension: 1024,
-      accuracyScore: 96.4,
-      deployedAt: "2026-02-01T10:00:00Z",
+      accuracy_score: 96.4,
+      deployed_at: "2026-02-01T10:00:00Z",
     },
     {
       id: "mod_02",
       name: "PaddleOCR Vietnamese Layout Parser",
       version: "v1.4.2",
-      status: "active",
+      is_active: true,
       dimension: 0,
-      accuracyScore: 94.8,
-      deployedAt: "2026-01-20T14:30:00Z",
+      accuracy_score: 94.8,
+      deployed_at: "2026-01-20T14:30:00Z",
     },
   ];
 

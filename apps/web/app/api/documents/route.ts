@@ -1,19 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MOCK_DOCUMENTS } from "@/lib/mocks/fixtures";
-import { getMockUserFromRequest } from "@/lib/auth/server-helper";
-import { Document } from "@/lib/api/types";
+import { requireMockUser } from "@/lib/auth/server-helper";
+import { problemResponse } from "@/lib/api/problem-response";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 /* DEMO ONLY — Replaced when real FastAPI backend endpoint /documents is connected */
 
 export async function GET(request: NextRequest) {
-  const user = getMockUserFromRequest(request);
+  const auth = requireMockUser(request);
+  if ("problem" in auth) {
+    return problemResponse(
+      auth.problem.status,
+      auth.problem.code,
+      auth.problem.title,
+      auth.problem.detail,
+      auth.problem.requestId,
+    );
+  }
 
+  const user = auth.user;
   // Role-based scoping check
   let docs = [...MOCK_DOCUMENTS];
   if (user.role === "student") {
-    docs = docs.filter((d) => d.scope === "PUBLIC" || d.scope === "STUDENT_AFFAIRS");
+    docs = docs.filter(
+      (d) => d.scope === "PUBLIC" || d.scope === "STUDENT_AFFAIRS",
+    );
   }
 
   const { searchParams } = new URL(request.url);
@@ -34,57 +46,53 @@ export async function GET(request: NextRequest) {
         d.title.toLowerCase().includes(q) ||
         d.codeNumber?.toLowerCase().includes(q) ||
         d.issuingBody?.toLowerCase().includes(q) ||
-        d.tags.some((t) => t.toLowerCase().includes(q))
+        d.tags.some((t) => t.toLowerCase().includes(q)),
     );
   }
 
+  // Return shape phải khớp OpenAPI (snake_case envelope).
   return NextResponse.json({
     success: true,
     data: docs,
     total: docs.length,
+    page: 1,
+    limit: docs.length,
   });
 }
 
 export async function POST(request: NextRequest) {
-  const user = getMockUserFromRequest(request);
-
-  if (user.role === "student") {
-    return NextResponse.json(
-      { success: false, message: "Sinh viên không có quyền upload văn bản." },
-      { status: 403 }
+  const auth = requireMockUser(request);
+  if ("problem" in auth) {
+    return problemResponse(
+      auth.problem.status,
+      auth.problem.code,
+      auth.problem.title,
+      auth.problem.detail,
+      auth.problem.requestId,
     );
   }
 
-  try {
-    const body = await request.json();
-    const newDoc: Document = {
-      id: `doc_${Date.now()}`,
-      title: body.title || "Văn bản mới tải lên",
-      type: body.type || "THONG_BAO",
-      status: "processing",
-      scope: body.scope || "STUDENT_AFFAIRS",
-      effectiveFrom: body.effectiveFrom || new Date().toISOString().split("T")[0],
-      issuingBody: body.issuingBody || "Phòng CTSV",
-      latestVersion: 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: body.tags || ["Số hóa"],
-      authorId: user.id || "usr_admin_01",
-      fileUrl: "/sample-doc.pdf",
-      fileSize: 1024000,
-    };
+  const user = auth.user;
+  if (user.role === "student") {
+    return problemResponse(
+      403,
+      "FORBIDDEN",
+      "Sinh viên không có quyền upload văn bản.",
+    );
+  }
 
-    /* DEMO MOCK HANDLER — Replaces when real FastAPI BE is connected */
-    MOCK_DOCUMENTS.unshift(newDoc);
-
-    return NextResponse.json({
+  // Mock create document — trả UploadResponse (snake_case).
+  // BE thật sẽ enqueue OCR job và trả 202 Accepted + job_id.
+  const newDoc = {
+    document_id: `doc_${Date.now()}`,
+    job_id: `job_${Date.now()}`,
+    status: "QUEUED" as const,
+  };
+  return NextResponse.json(
+    {
       success: true,
       data: newDoc,
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { success: false, message: "Dữ liệu không hợp lệ" },
-      { status: 400 }
-    );
-  }
+    },
+    { status: 202 },
+  );
 }

@@ -18,6 +18,8 @@ dist/
 .venv/
 venv/
 env/
+uv.lock
+.uv-cache/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

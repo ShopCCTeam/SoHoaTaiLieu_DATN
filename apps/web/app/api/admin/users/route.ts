@@ -1,47 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMockUserFromRequest } from "@/lib/auth/server-helper";
+import { requireMockUser } from "@/lib/auth/server-helper";
+import { problemResponse } from "@/lib/api/problem-response";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 /* DEMO ONLY — Replaced when real FastAPI Admin Users endpoint is connected */
 
 export async function GET(request: NextRequest) {
-  const user = getMockUserFromRequest(request);
-
-  if (user.role !== "admin") {
-    return NextResponse.json(
-      { success: false, message: "403 Forbidden — Chỉ Admin mới có quyền quản lý người dùng." },
-      { status: 403 }
+  const auth = requireMockUser(request);
+  if ("problem" in auth) {
+    return problemResponse(
+      auth.problem.status,
+      auth.problem.code,
+      auth.problem.title,
+      auth.problem.detail,
+      auth.problem.requestId,
     );
   }
 
+  if (auth.user.role !== "admin") {
+    return problemResponse(
+      403,
+      "FORBIDDEN",
+      "Chỉ Admin mới có quyền quản lý người dùng.",
+    );
+  }
+
+  // Trả snake_case envelope (FE mapper sẽ convert sang camelCase domain).
   const users = [
     {
       id: "u_admin",
-      fullName: "Nguyễn Văn Quản Trị",
+      full_name: "Nguyễn Văn Quản Trị",
       email: "admin@example.edu.vn",
       role: "admin",
       department: "Phòng CTSV & CNTT",
-      status: "active",
-      createdAt: "2026-01-01T00:00:00Z",
     },
     {
       id: "u_staff",
-      fullName: "Lê Thị Chuyên Viên",
+      full_name: "Lê Thị Chuyên Viên",
       email: "staff@example.edu.vn",
       role: "staff",
       department: "Phòng Công tác Sinh viên",
-      status: "active",
-      createdAt: "2026-01-10T00:00:00Z",
     },
     {
       id: "u_student",
-      fullName: "Trần Văn Sinh Viên",
+      full_name: "Trần Văn Sinh Viên",
       email: "student@example.edu.vn",
       role: "student",
       department: "Khoa CNTT - K16",
-      status: "active",
-      createdAt: "2026-02-01T00:00:00Z",
     },
   ];
 

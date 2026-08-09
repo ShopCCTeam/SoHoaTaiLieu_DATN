@@ -1,3 +1,30 @@
+/**
+ * FE-domain models (camelCase) — dùng trong UI & state.
+ *
+ * Lưu ý: OpenAPI trả snake_case (contract chuẩn). FE dùng camelCase ở UI/state
+ * để idiomatic. Mapping đi qua `lib/api/mappers/*` ở mọi entry/exit point.
+ *
+ * KHÔNG nhận raw response của `fetch`/`apiClient` rồi đưa vào component.
+ * Luôn chạy qua mapper.
+ */
+import type {
+  Document as ApiDocument,
+  DocumentVersion as ApiDocumentVersion,
+  User as ApiUser,
+  OCRBlock as ApiOCRBlock,
+  Citation as ApiCitation,
+  Job as ApiJob,
+  DocumentStatusEnum,
+  DocumentScope,
+  OCRReviewStatus,
+} from "@ctsv/contracts";
+
+// ---- Re-export enums (giữ nguyên tên, format đã UPPER_SNAKE) ----
+export type DocumentStatus = DocumentStatusEnum;
+export type { DocumentScope, OCRReviewStatus };
+
+// ---- Domain models (camelCase) ----
+
 export type UserRole = "admin" | "staff" | "student";
 
 export interface User {
@@ -5,43 +32,26 @@ export interface User {
   email: string;
   fullName: string;
   role: UserRole;
-  scopes: string[];
+  department?: string | null;
   avatarUrl?: string;
-  department?: string;
   status?: string;
 }
-
-export type DocumentType =
-  | "QUY_CHE"
-  | "QUY_DINH"
-  | "THONG_BAO"
-  | "QUYET_DINH"
-  | "HUONG_DAN"
-  | "MAU_DON";
-
-export type DocumentStatus =
-  | "draft"
-  | "processing"
-  | "review"
-  | "approved"
-  | "expired"
-  | "failed";
 
 export interface Document {
   id: string;
   title: string;
-  type: DocumentType;
+  type: ApiDocument["type"];
   status: DocumentStatus;
+  scope: DocumentScope;
+  codeNumber?: string | null;
+  issuingBody?: string | null;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  latestVersion: number;
+  authorId?: string;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
-  latestVersion: number;
-  scope: string;
-  codeNumber?: string;
-  issuingBody?: string;
-  effectiveFrom?: string;
-  effectiveTo?: string;
-  tags: string[];
-  authorId: string;
   fileUrl?: string;
   fileSize?: number;
   pageCount?: number;
@@ -52,38 +62,49 @@ export interface DocumentVersion {
   documentId: string;
   versionNumber: number;
   status: DocumentStatus;
-  createdAt: string;
-  createdBy: string;
-  effectiveFrom?: string;
-  effectiveTo?: string;
+  ocrStatus: ApiDocumentVersion["ocr_status"];
+  requiresReview: boolean;
   fileUrl: string;
   fileSize: number;
   checksum: string;
-  changeSummary?: string;
-  supersedesVersionId?: string;
-  supersededByVersionId?: string;
+  supersedesVersionId?: string | null;
+  supersededByVersionId?: string | null;
+  changeSummary?: string | null;
+  createdBy?: string;
+  createdAt: string;
 }
 
 export interface OCRBlock {
   id: string;
+  ocrJobId: string;
   pageNumber: number;
-  bbox: [number, number, number, number]; // [x, y, width, height] percentage or normalized 0-100
+  /**
+   * Bounding box theo PDF coordinate [x_min, y_min, x_max, y_max].
+   * KHÔNG phải [x, y, width, height] — xem mapper *-to-canvas-px.ts.
+   */
+  bbox: [number, number, number, number];
   text: string;
   confidence: number;
+  requiresReview: boolean;
+  reviewStatus: OCRReviewStatus;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
   isEdited: boolean;
-  editedBy?: string;
-  editedAt?: string;
-  originalText?: string;
+  editedBy?: string | null;
+  editedAt?: string | null;
+  originalText?: string | null;
+  processingTimeMs: number;
 }
 
 export interface Citation {
   documentId: string;
-  documentTitle: string;
   documentVersionId: string;
+  documentTitle: string;
   pageNumber: number;
+  chunkId: string;
   quote: string;
   score: number;
-  codeNumber?: string;
+  bbox?: [number, number, number, number];
 }
 
 export interface ChatMessage {
@@ -95,9 +116,21 @@ export interface ChatMessage {
   isStreaming?: boolean;
 }
 
-export interface ChatResponse {
+export interface ChatAnswerData {
   answer: string;
   citations: Citation[];
+  hasSufficientEvidence: boolean;
+}
+
+export interface Job {
+  id: string;
+  type: ApiJob["type"];
+  status: ApiJob["status"];
+  progress: number;
+  error?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt: string;
 }
 
 export interface TrainingRun {
@@ -122,9 +155,34 @@ export interface ModelVersion {
   provider: string;
 }
 
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  statusCode?: number;
+// ---- Problem Detail (RFC 7807) ----
+export interface ProblemDetail {
+  type: string;
+  title: string;
+  status: number;
+  detail?: string | null;
+  code: string;
+  requestId: string;
+  errors?: Array<{ field: string; message: string }>;
+}
+
+// ---- Auth response (tách access token: access in memory, refresh in HttpOnly cookie) ----
+export interface LoginAnswerData {
+  accessToken: string;
+  expiresIn: number;
+  user: User;
+}
+
+// ---- Typed API errors (FE side) ----
+export class ApiError extends Error {
+  statusCode: number;
+  code: string;
+  problem?: ProblemDetail;
+  constructor(problem: ProblemDetail) {
+    super(problem.detail || problem.title);
+    this.name = "ApiError";
+    this.statusCode = problem.status;
+    this.code = problem.code;
+    this.problem = problem;
+  }
 }

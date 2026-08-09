@@ -4,7 +4,7 @@ import React, { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { validateFile, validateFileMagicBytes, calculateChecksum } from "@/lib/utils/file";
 import { formatFileSize } from "@/lib/utils/format";
-import { DocumentType } from "@/lib/api/types";
+import { Document } from "@/lib/api/types";
 import {
   UploadCloud,
   FileCheck,
@@ -27,7 +27,7 @@ export const UploadDropzone: React.FC = () => {
 
   // Metadata form states
   const [title, setTitle] = useState<string>("");
-  const [type, setType] = useState<DocumentType>("THONG_BAO");
+  const [type, setType] = useState<Document["type"]>("THONG_BAO");
   const [codeNumber, setCodeNumber] = useState<string>("");
   const [issuingBody, setIssuingBody] = useState<string>("Phòng Công tác Sinh viên");
   const [tags, setTags] = useState<string>("Số hóa, CTSV");
@@ -231,7 +231,7 @@ export const UploadDropzone: React.FC = () => {
               </label>
               <select
                 value={type}
-                onChange={(e) => setType(e.target.value as DocumentType)}
+                onChange={(e) => setType(e.target.value as Document["type"])}
                 className="w-full h-10 px-3 rounded-xl border border-primary-200 bg-white/80 dark:bg-slate-900/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary-400"
               >
                 <option value="QUY_CHE">Quy chế</option>

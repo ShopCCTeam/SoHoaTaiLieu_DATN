@@ -135,7 +135,7 @@ export const VersionList: React.FC<VersionListProps> = ({
                   </td>
                   <td className="py-3.5 px-3 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {ver.status === "draft" && (
+                      {ver.status === "DRAFT" && (
                         <button
                           onClick={() => handleTriggerOCR(ver.id)}
                           disabled={isProcessing}
@@ -150,7 +150,7 @@ export const VersionList: React.FC<VersionListProps> = ({
                         </button>
                       )}
 
-                      {ver.status === "review" && canApprove && (
+                      {ver.status === "UNDER_REVIEW" && canApprove && (
                         <button
                           onClick={() => handleApprove(ver.id)}
                           disabled={isProcessing}

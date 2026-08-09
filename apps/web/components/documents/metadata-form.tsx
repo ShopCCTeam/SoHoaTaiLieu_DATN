@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Document, DocumentType } from "@/lib/api/types";
+import { Document } from "@/lib/api/types";
 import { useAuthStore } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/auth/permissions";
 import { Save, Check, Shield, FileText, Calendar, Building, Tag } from "lucide-react";
@@ -19,7 +19,7 @@ export const MetadataForm: React.FC<MetadataFormProps> = ({
   const canEdit = hasPermission(user?.role, "canUploadDocuments");
 
   const [title, setTitle] = useState(document.title);
-  const [type, setType] = useState<DocumentType>(document.type);
+  const [type, setType] = useState<Document["type"]>(document.type);
   const [codeNumber, setCodeNumber] = useState(document.codeNumber || "");
   const [issuingBody, setIssuingBody] = useState(document.issuingBody || "");
   const [effectiveFrom, setEffectiveFrom] = useState(document.effectiveFrom || "");
@@ -92,7 +92,7 @@ export const MetadataForm: React.FC<MetadataFormProps> = ({
           </label>
           <select
             value={type}
-            onChange={(e) => setType(e.target.value as DocumentType)}
+            onChange={(e) => setType(e.target.value as Document["type"])}
             disabled={!canEdit}
             className="w-full h-10 px-3 rounded-xl border border-primary-200 bg-white/80 dark:bg-slate-900/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:opacity-70"
           >
@@ -140,7 +140,7 @@ export const MetadataForm: React.FC<MetadataFormProps> = ({
           </label>
           <select
             value={scope}
-            onChange={(e) => setScope(e.target.value)}
+            onChange={(e) => setScope(e.target.value as Document["scope"])}
             disabled={!canEdit}
             className="w-full h-10 px-3 rounded-xl border border-primary-200 bg-white/80 dark:bg-slate-900/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:opacity-70"
           >

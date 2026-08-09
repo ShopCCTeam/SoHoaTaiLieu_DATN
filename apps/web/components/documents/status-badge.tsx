@@ -1,7 +1,7 @@
 import React from "react";
 import { DocumentStatus } from "@/lib/api/types";
 import { getStatusLabel, getStatusBadgeVariant } from "@/lib/utils/format";
-import { CheckCircle2, Clock, AlertTriangle, FileText, XCircle, RefreshCw } from "lucide-react";
+import { CheckCircle2, Clock, FileText, AlertTriangle } from "lucide-react";
 
 interface StatusBadgeProps {
   status: DocumentStatus;
@@ -21,18 +21,14 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
     if (!showIcon) return null;
     const iconClass = "w-3.5 h-3.5 mr-1.5 stroke-current flex-shrink-0";
     switch (status) {
-      case "approved":
+      case "APPROVED":
         return <CheckCircle2 className={iconClass} aria-hidden="true" />;
-      case "review":
+      case "UNDER_REVIEW":
         return <Clock className={iconClass} aria-hidden="true" />;
-      case "processing":
-        return <RefreshCw className={`${iconClass} animate-spin`} aria-hidden="true" />;
-      case "draft":
+      case "DRAFT":
         return <FileText className={iconClass} aria-hidden="true" />;
-      case "expired":
+      case "ARCHIVED":
         return <AlertTriangle className={iconClass} aria-hidden="true" />;
-      case "failed":
-        return <XCircle className={iconClass} aria-hidden="true" />;
     }
   };
 
