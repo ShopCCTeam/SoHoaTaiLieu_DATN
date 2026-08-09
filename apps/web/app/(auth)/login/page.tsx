@@ -115,7 +115,7 @@ export default function LoginPage() {
                 {...register("email")}
                 type="email"
                 className="w-full h-11 pl-10 pr-4 rounded-xl border border-primary-200 bg-white/80 dark:bg-slate-900/80 text-xs focus:outline-none focus:ring-2 focus:ring-primary-400 transition-all"
-                placeholder="name@phenikaa-uni.edu.vn"
+                placeholder="name@example.edu.vn"
               />
             </div>
             {errors.email && (

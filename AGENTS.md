@@ -34,34 +34,39 @@ SoHoaTaiLieu_DATN/
 | 05 | `.cursor/rules/05-testing.mdc` | Khi viết/sửa test |
 | 06 | `.cursor/rules/06-security.mdc` | Khi sửa auth, permission, secrets, log |
 | 07 | `.cursor/rules/07-skill-activation.mdc` | Trước khi bắt đầu task — chọn skill phù hợp |
+| 08 | `.cursor/rules/08-governance.mdc` | Mọi session — giới hạn quyền agent, idempotency, RAG safety |
 
 ## Trạng thái hiện tại
 
 - ✅ Frontend Phase F0–F6 đã walkthrough, đang chờ người khác review & fix 4 MUST-FIX.
 - ⏸ Phase 0 Backend chưa bắt đầu (chờ lệnh).
 - ✅ 27 Agent Skill đã cài.
-- ✅ 8 Project Rule đã thiết lập (file này + 7 file `.cursor/rules/`).
+- ✅ 8 Project Rule đã thiết lập (rule 00–07).
+- ✅ Rule 08 (governance) bổ sung sau review P0.
 - 📖 Đọc tiến độ chi tiết ở `docs/PROGRESS.md`.
 
-## Tech stack cố định (KHÔNG thay đổi khi chưa có quyết định mới)
+## Tech stack cố định (KHÔNG thay đổi khi chưa có ADR mới)
 
 **Frontend**:
 - Next.js 14+ (App Router), TypeScript Strict, Tailwind CSS.
 - Zustand v5 + TanStack Query v5.
 - Framer Motion, Lucide React (100% SVG icon).
 - Zod + React Hook Form.
-- Vitest + Testing Library, Playwright.
+- Vitest + Testing Library, Playwright (E2E).
 
-**Backend (đề xuất, chưa chốt)**:
-- Node.js + Fastify **HOẶC** Python + FastAPI.
-- PostgreSQL + Qdrant + Ollama.
-- Pydantic (Python) hoặc Zod (Node) cho validation.
+**Backend** (đã chốt trong `docs/adr/0001-stack.md`):
+- Python 3.11 + FastAPI + Pydantic v2.
+- SQLAlchemy 2.x + Alembic.
+- PostgreSQL 16 + pgvector (vector + full-text + metadata).
+- Celery + Redis (broker).
+- MinIO (S3-compatible file storage).
+- Uvicorn (dev) / Gunicorn + Uvicorn workers (prod).
 
 **AI/ML**:
-- OCR: PaddleOCR (primary), Tesseract (fallback).
-- Embedding: BGE-M3 (1024 dim).
-- LLM: Ollama (Qwen2.5 hoặc Llama-3.1 8B instruct).
-- Vector DB: Qdrant.
+- OCR: PaddleOCR (primary, fine-tuned bằng dữ liệu riêng) + Tesseract (fallback runtime only).
+- Embedding: BGE-M3 multilingual (1024 dim).
+- LLM: Ollama local (Qwen2.5 hoặc Llama-3.1 8B) — provider adapter để swap.
+- Vector DB: **pgvector** (chung PostgreSQL, không tách Qdrant trong MVP).
 
 ## Lệnh nhanh
 

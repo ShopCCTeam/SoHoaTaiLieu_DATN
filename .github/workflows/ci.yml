@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # =========================================================
+  # Frontend quality gate
+  # =========================================================
+  web:
+    name: Web (Next.js) Quality Gate
+    runs-on: ubuntu-latest
+    defaults:
+      working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_API_MODE: mock
+
+  # =========================================================
+  # Backend quality gate (chỉ chạy khi có apps/api)
+  # =========================================================
+  api:
+    name: API (FastAPI) Quality Gate
+    runs-on: ubuntu-latest
+    if: hashFiles('apps/api/pyproject.toml') != ''
+    defaults:
+      working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint (Ruff)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type-check (mypy)
+        run: uv run mypy app
+
+      - name: Test (pytest)
+        run: uv run pytest --cov=app --cov-report=term-missing
+
+      # DB migration sẽ chạy khi Phase BE có docker-compose
+      # - name: Migrate
+      #   run: uv run alembic upgrade head

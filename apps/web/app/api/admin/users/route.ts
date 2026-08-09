@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     {
       id: "u_admin",
       fullName: "Nguyễn Văn Quản Trị",
-      email: "admin@phenikaa-uni.edu.vn",
+      email: "admin@example.edu.vn",
       role: "admin",
       department: "Phòng CTSV & CNTT",
       status: "active",
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     {
       id: "u_staff",
       fullName: "Lê Thị Chuyên Viên",
-      email: "staff@phenikaa-uni.edu.vn",
+      email: "staff@example.edu.vn",
       role: "staff",
       department: "Phòng Công tác Sinh viên",
       status: "active",
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     {
       id: "u_student",
       fullName: "Trần Văn Sinh Viên",
-      email: "student@phenikaa-uni.edu.vn",
+      email: "student@example.edu.vn",
       role: "student",
       department: "Khoa CNTT - K16",
       status: "active",

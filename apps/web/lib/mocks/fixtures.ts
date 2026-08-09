@@ -200,7 +200,7 @@ export const MOCK_OCR_BLOCKS: Record<string, OCRBlock[]> = {
       id: "blk_05",
       pageNumber: 2,
       bbox: [10, 15, 80, 20],
-      text: "Điều 3. Quy trình nộp hồ sơ xin tạm hoãn học tập:\nBước 1: Sinh viên nộp đơn online tại Cổng thông tin Công tác Sinh viên (ctsv.phenikaa-uni.edu.vn);\nBước 2: Đính kèm minh chứng y tế hoặc lý do cá nhân hợp lệ;\nBước 3: Phòng CTSV tiếp nhận và duyệt hồ sơ trong 03 ngày làm việc.",
+      text: "Điều 3. Quy trình nộp hồ sơ xin tạm hoãn học tập:\nBước 1: Sinh viên nộp đơn online tại Cổng thông tin Công tác Sinh viên (ctsv.example.edu.vn);\nBước 2: Đính kèm minh chứng y tế hoặc lý do cá nhân hợp lệ;\nBước 3: Phòng CTSV tiếp nhận và duyệt hồ sơ trong 03 ngày làm việc.",
       confidence: 0.92,
       isEdited: false,
     },

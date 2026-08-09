@@ -40,7 +40,7 @@ export const CitationChip: React.FC<CitationChipProps> = ({ citation }) => {
             </span>
           </div>
           <p className="text-[11px] text-slate-700 dark:text-slate-300 italic bg-primary-50/50 dark:bg-slate-950/50 p-2 rounded-xl border border-primary-100">
-            "{citation.quote}"
+            &ldquo;{citation.quote}&rdquo;
           </p>
         </div>
       )}

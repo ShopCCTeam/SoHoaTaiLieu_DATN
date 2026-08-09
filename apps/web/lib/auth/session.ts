@@ -5,7 +5,7 @@ import { User, UserRole } from "../api/types";
 export const DEMO_USERS: Record<UserRole, User> = {
   admin: {
     id: "usr_admin_01",
-    email: "admin@phenikaa-uni.edu.vn",
+    email: "admin@example.edu.vn",
     fullName: "Nguyễn Văn Quản Trị",
     role: "admin",
     scopes: ["ALL"],
@@ -14,7 +14,7 @@ export const DEMO_USERS: Record<UserRole, User> = {
   },
   staff: {
     id: "usr_staff_01",
-    email: "staff@phenikaa-uni.edu.vn",
+    email: "staff@example.edu.vn",
     fullName: "Lê Thị Chuyên Viên",
     role: "staff",
     scopes: ["ALL"],
@@ -23,7 +23,7 @@ export const DEMO_USERS: Record<UserRole, User> = {
   },
   student: {
     id: "usr_student_01",
-    email: "student@phenikaa-uni.edu.vn",
+    email: "student@example.edu.vn",
     fullName: "Trần Minh Sinh Viên",
     role: "student",
     scopes: ["PUBLIC", "STUDENT_AFFAIRS"],

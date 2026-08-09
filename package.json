@@ -2,10 +2,20 @@
   "name": "sohoatailieu-datn",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
   "scripts": {
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
+    "start": "pnpm --filter web start",
     "test": "pnpm --filter web test",
-    "lint": "pnpm --filter web lint"
+    "test:e2e": "pnpm --filter web test:e2e",
+    "lint": "pnpm --filter web lint",
+    "typecheck": "pnpm --filter web typecheck",
+    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "format": "pnpm --filter web exec prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
   }
 }

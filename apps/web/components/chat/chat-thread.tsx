@@ -90,7 +90,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
 
       if (qLower.includes("nghỉ học") || qLower.includes("tạm hoãn") || qLower.includes("bảo lưu")) {
         answerText =
-          "Theo Hướng dẫn Thủ tục Xin Tạm hoãn Học tập & Bảo lưu Kết quả Học tập (Số HD-CTSV/2026-05):\n\n1. **Điều kiện:** Sinh viên được xin tạm dừng học tập nếu ốm đau dài ngày (có xác nhận y tế), thi hành nghĩa vụ quân sự hoặc có lý do cá nhân hợp lệ (đã học tối thiểu 01 học kỳ).\n2. **Quy trình nộp:** Sinh viên truy cập Cổng CTSV (ctsv.phenikaa-uni.edu.vn), chọn 'Đơn xin tạm dừng học tập', tải minh chứng PDF/ảnh và gửi trực tuyến.\n3. **Thời gian xử lý:** Phòng CTSV duyệt trong vòng 03 ngày làm việc.";
+          "Theo Hướng dẫn Thủ tục Xin Tạm hoãn Học tập & Bảo lưu Kết quả Học tập (Số HD-CTSV/2026-05):\n\n1. **Điều kiện:** Sinh viên được xin tạm dừng học tập nếu ốm đau dài ngày (có xác nhận y tế), thi hành nghĩa vụ quân sự hoặc có lý do cá nhân hợp lệ (đã học tối thiểu 01 học kỳ).\n2. **Quy trình nộp:** Sinh viên truy cập Cổng CTSV (ctsv.example.edu.vn), chọn 'Đơn xin tạm dừng học tập', tải minh chứng PDF/ảnh và gửi trực tuyến.\n3. **Thời gian xử lý:** Phòng CTSV duyệt trong vòng 03 ngày làm việc.";
 
         citations = [
           {

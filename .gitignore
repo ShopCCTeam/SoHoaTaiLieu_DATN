@@ -1,4 +1,18 @@
-# Python
+# =========================================================
+# Secrets — KHÔNG commit bất kỳ file env nào ngoài .example
+# =========================================================
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+!.env.example
+!.env.*.example
+
+# =========================================================
+# Python (Backend FastAPI — sẽ dùng khi Phase BE)
+# =========================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -9,9 +23,6 @@ dist/
 .venv/
 venv/
 env/
-.env
-.env.local
-.env.*.local
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
@@ -19,8 +30,11 @@ env/
 htmlcov/
 celerybeat-schedule
 celerybeat.pid
+.uv-cache/
 
+# =========================================================
 # Node / Next.js
+# =========================================================
 node_modules/
 .next/
 out/
@@ -32,7 +46,9 @@ coverage/
 .eslintcache
 .pnpm-debug.log*
 
+# =========================================================
 # Editor / OS
+# =========================================================
 .idea/
 .vscode/
 .DS_Store
@@ -40,24 +56,52 @@ Thumbs.db
 *.swp
 *.swo
 
-# Project secrets / data
-data/raw/*.pdf
-data/raw/*.PDF
-data/interim/
-data/raw/.cache/
-data/manifests/locked/
-models/*.pt
-models/*.pth
-models/*.onnx
-models/*/checkpoints/
-*.log
+# =========================================================
+# ⚠️  Dữ liệu huấn luyện & đánh giá — KHÔNG commit
+# Chỉ cho phép: README, .gitkeep, synthetic fixtures
+# =========================================================
+data/**
+!data/README.md
+!data/.gitkeep
+!data/fixtures/
+!data/fixtures/synthetic/**
+
+# =========================================================
+# ⚠️  Model artifacts — KHÔNG commit
+# =========================================================
+models/**
+!models/README.md
+!models/.gitkeep
+!models/model-card-template.md
+*.pdparams
+*.pdopt
+*.pdmodel
+*.safetensors
+*.ckpt
+*.onnx
+*.pth
+*.pt
+
+# =========================================================
+# Experiment outputs
+# =========================================================
+runs/
+artifacts/
+mlruns/
+wandb/
+checkpoints/
+
+# =========================================================
+# Project-specific
+# =========================================================
 logs/
+*.log
 
 # AutoSkill local cache
 .autoskill/
 .autoskill-cache/
 
-# Cloned repos / temp (keep install_skills.ps1; only temp_autoskill_repo is excluded)
+# Cloned repos / temp
 temp_autoskill_repo/
 
 # Playwright

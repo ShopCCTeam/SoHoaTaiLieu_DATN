@@ -73,7 +73,7 @@ export default function SearchRAGPage() {
       {activeQuery && (
         <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 px-2">
           <span>
-            Kết quả tra cứu cho: <span className="font-bold text-slate-900 dark:text-white">"{activeQuery}"</span>
+            Kết quả tra cứu cho: <span className="font-bold text-slate-900 dark:text-white">&ldquo;{activeQuery}&rdquo;</span>
           </span>
           <span className="text-muted-foreground">Tìm thấy {results.length} đoạn trích tương đồng</span>
         </div>
