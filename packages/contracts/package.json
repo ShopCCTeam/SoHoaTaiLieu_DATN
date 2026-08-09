@@ -1,0 +1,15 @@
+{
+  "name": "@ctsv/contracts",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared TypeScript types sinh từ OpenAPI spec",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "generate": "openapi-typescript ../../docs/api/openapi.yaml -o src/generated.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.4.0",
+    "typescript": "^5.6.0"
+  }
+}

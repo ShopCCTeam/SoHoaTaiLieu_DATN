@@ -20,8 +20,16 @@
 - Tạo `AGENTS.md` ở root làm entry point cho agent.
 
 **Quyết định**:
-- BE stack: **chưa chốt** (Node.js hay Python) — đề xuất Node + Fastify hoặc Python + FastAPI, sẽ quyết ở Phase 0 BE.
+- BE stack (chốt sau): **Python + FastAPI + pgvector** (xem `docs/adr/0001-stack.md`).
 - Tất cả rule `alwaysApply: true` trừ 02 (globs FE) và 03 (globs BE).
+
+**Sau review P0/P1 (commit `45ab6d8`, `5ed884c`, scaffold đang chuẩn bị)**:
+
+- ✅ Commit 1 — `docs: chốt hợp đồng API & domain`: 6 file docs (OpenAPI, RBAC, lifecycle, citation, root README).
+- ✅ Commit 2 — `chore: siết chặt governance & CI`: rule 08 mới, pgvector, .gitignore mở rộng, CI workflow, email domain, scripts.
+- ⏳ Commit 3 — `chore: scaffold backend foundation`: folder skeleton rỗng + ADR-0001 + Makefile + MODEL_CARD template.
+
+Kết quả: foundation hoàn tất, sẵn sàng cho Phase 0 BE code thật khi user ra lệnh.
 
 ---
 
