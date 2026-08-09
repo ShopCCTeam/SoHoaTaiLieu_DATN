@@ -26,7 +26,11 @@ alwaysApply: true
   - Idempotent (chạy 2 lần với cùng input → kết quả giống nhau).
   - Retry tối đa 3 lần với backoff (60s / 300s / 1800s).
   - Lưu trạng thái vào `jobs` table, không phải memory.
-- Mọi **API mutation** POST phải nhận `Idempotency-Key` header (UUID) để tránh double-submit.
+- **Idempotency-Key header**:
+  - Chỉ áp dụng cho các POST endpoint được liệt kê tại `.cursor/rules/03-backend-api.mdc §4.1`.
+  - **KHÔNG áp dụng** cho `auth/login`, `auth/refresh`, `auth/logout`, `chat/query`, `search`.
+  - Tự ý thêm Idempotency-Key cho endpoint khác → phải update rule 03 trước (tạo PR), rồi mới sửa code.
+  - Khi agent gặp rule 03 và rule 08 mâu thuẫn → theo rule 03 (chi tiết hơn, đã chốt 6 P0).
 
 ## 3. Quy tắc logging & privacy
 

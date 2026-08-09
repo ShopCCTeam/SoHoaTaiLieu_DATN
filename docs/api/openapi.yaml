@@ -71,7 +71,7 @@ components:
           description: Mô tả chi tiết (tiếng Việt).
         code:
           type: string
-          enum: [UNAUTHORIZED, FORBIDDEN, NOT_FOUND, VALIDATION_ERROR, INVALID_FILE_TYPE, RATE_LIMIT, CONFLICT, INTERNAL]
+          enum: [UNAUTHORIZED, FORBIDDEN, NOT_FOUND, VALIDATION_ERROR, INVALID_FILE_TYPE, IDEMPOTENCY_KEY_MISMATCH, RATE_LIMIT, CONFLICT, INTERNAL]
           description: Mã machine-readable.
         request_id:
           type: string
@@ -300,12 +300,8 @@ components:
               type: integer
               description: TTL của access token (giây).
             user: { $ref: '#/components/schemas/User' }
-          # Refresh token KHÔNG ở đây — server set qua HttpOnly cookie `rt`.
-        cookie:
-          type: string
-          description: |
-            Server set cookie `rt=<refresh_token>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth`
-            trong response Set-Cookie header. FE tự động gửi cookie này khi gọi `/auth/refresh`.
+          # Refresh token KHÔNG ở đây — server set qua HttpOnly cookie `rt`
+          # (mô tả ở response header `Set-Cookie`, không nằm trong body schema).
 
   # ----- Reusable responses (OpenAPI 3.1 yêu cầu Response Object riêng) -----
   responses:

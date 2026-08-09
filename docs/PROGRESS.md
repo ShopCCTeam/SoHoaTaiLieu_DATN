@@ -31,12 +31,15 @@
 | 2 | `5ed884c` | `chore: siết chặt governance & CI` | rule 08 mới, pgvector, .gitignore mở rộng, CI workflow, email domain, scripts. |
 | 3 | `2888d86` | `chore: scaffold backend foundation` | folder skeleton rỗng + ADR-0001 + Makefile + MODEL_CARD template. |
 | 4 | `a847ce4` | `chore: đồng bộ foundation theo review` | RFC 7807 trong rule 03, ADR rename, PROGRESS update, +23 tests (RBAC/apiClient/file). |
+| 5 | `ea805f1` | `chore: siết foundation trước Phase 0 BE` | OpenAPI 3.1 + Reusable responses + IDEMPOTENCY_KEY_MISMATCH, refresh token cookie, Idempotency thu hẹp, skill activation lọc, .gitignore `.env*`, OCR review (`requires_review` + `review_status`). |
 
-**Trạng thái Foundation (sau commit `a847ce4`)**:
+**Trạng thái Foundation (sau commit `ea805f1`)**:
 - ✅ Stack Python + FastAPI + pgvector đã chốt (xem `docs/adr/0001-backend-stack.md`).
-- ✅ API contract OpenAPI 3.1 + RFC 7807 đã viết (sẽ validate bằng Redocly ở commit kế).
+- ✅ API contract OpenAPI 3.1 + RFC 7807 đã viết và **ĐÃ VERIFY** bằng `redocly lint` (22 warnings cosmetic, không phải errors).
+- ✅ Contract-first: rule 03 chốt `docs/api/openapi.yaml` làm source of truth, CI sẽ so sánh khi FastAPI sinh openapi.json.
+- ✅ Auth pattern: refresh token ở HttpOnly cookie (spec tại `docs/api/auth-cookie.md`), đã sửa endpoint table trong rule 03.
 - ✅ Folder skeleton `apps/api/`, `services/worker/`, `services/ocr-training/`, `packages/contracts/`, `infra/docker/` đã có (chỉ README + .gitkeep, chưa code).
-- ✅ Quality gate FE: `pnpm check` (lint + typecheck + test 26/26 + build) PASS.
+- ✅ Quality gate FE: `pnpm check` (lint + typecheck + test 26/26 + openapi:lint + build) PASS.
 - ⏸ BE code thật chưa viết — **chờ lệnh "Bắt đầu Phase 0 BE"** từ user.
 
 ---

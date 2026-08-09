@@ -28,8 +28,18 @@ jobs:
       - name: Install Redocly CLI
         run: npm install -g @redocly/cli
 
-      - name: Lint docs/api/openapi.yaml
+      - name: Lint docs/api/openapi.yaml (RFC 7807 + OpenAPI 3.1)
         run: redocly lint docs/api/openapi.yaml
+
+      # Sau khi FastAPI scaffold xong sẽ thêm step:
+      # - name: Generate OpenAPI from FastAPI
+      #   run: |
+      #     cd apps/api
+      #     uv run python -c "from app.main import app; import json; print(json.dumps(app.openapi(), indent=2))" > /tmp/generated.json
+      #     # Convert yaml -> json cho cùng format
+      #     redocly bundle docs/api/openapi.yaml --output /tmp/contract.json
+      #     diff -u /tmp/contract.json /tmp/generated.json
+      # để đảm bảo implementation khớp contract (contract-first).
 
   # =========================================================
   # Frontend quality gate
@@ -71,16 +81,23 @@ jobs:
           NEXT_PUBLIC_API_MODE: mock
 
   # =========================================================
-  # Backend quality gate (chỉ chạy khi có apps/api)
+  # Backend quality gate (luôn chạy — Phase 0 BE sẽ có pyproject.toml
+  # sớm; nếu job luôn skip thì dev sẽ không phát hiện BE lỗi)
   # =========================================================
   api:
     name: API (FastAPI) Quality Gate
     runs-on: ubuntu-latest
-    if: hashFiles('apps/api/pyproject.toml') != ''
     defaults:
       working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
+
+      - name: Guard pyproject.toml
+        run: |
+          if [ ! -f apps/api/pyproject.toml ]; then
+            echo "::error::apps/api/pyproject.toml chưa tồn tại — Phase 0 BE chưa bắt đầu."
+            exit 1
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@v5

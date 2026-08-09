@@ -15,11 +15,13 @@
     "test:e2e": "pnpm --filter web test:e2e",
     "lint": "pnpm --filter web lint",
     "typecheck": "pnpm --filter web typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\" --ignore-path .gitignore",
     "openapi:lint": "redocly lint docs/api/openapi.yaml",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm openapi:lint",
-    "format": "pnpm --filter web exec prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm openapi:lint && pnpm build"
   },
   "devDependencies": {
-    "@redocly/cli": "^1.25.0"
+    "@redocly/cli": "^1.25.0",
+    "prettier": "^3.9.6"
   }
 }

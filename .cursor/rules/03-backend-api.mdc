@@ -8,6 +8,14 @@ alwaysApply: false
 
 > Áp dụng cho Phase BE trở đi. Đã chốt stack ở `docs/adr/0001-backend-stack.md`.
 
+## 0. Contract-first (bắt buộc)
+
+- **`docs/api/openapi.yaml` là single source of truth** cho API contract.
+- FastAPI code **phải khớp** OpenAPI đã chốt. Không tự ý đổi endpoint, status, schema.
+- **CI so sánh**: sau khi FastAPI generate `openapi.json` runtime, CI phải diff với `docs/api/openapi.yaml` (dùng `openapi-spec-validator` hoặc `redocly bundle`). Nếu lệch → fail build.
+- **Update contract trước** khi sửa code: mở PR chỉnh `openapi.yaml` → review → merge → mới sửa code.
+- Lý do: FE mock phải bám contract, controller Pydantic phải validate theo schema, audit phải verify status code theo spec. Nếu contract trôi, mọi layer lệch.
+
 ## 1. Nguyên tắc chung (bắt buộc)
 
 - **Layered Architecture**: `presentation` → `application` (use case) → `domain` (entity) → `infrastructure` (DB, MinIO, Redis).
@@ -84,30 +92,45 @@ Content-Type: application/problem+json
 
 Tóm tắt các endpoint quan trọng (full spec ở `docs/api/openapi.yaml`):
 
-| Method | Path | Permission | Response |
-|---|---|---|---|
-| POST | `/api/v1/auth/login` | public | `{success, data: {access_token, refresh_token, user}}` |
-| POST | `/api/v1/auth/refresh` | public | `{success, data: {access_token, expires_in}}` |
-| POST | `/api/v1/auth/logout` | auth | 204 |
-| GET | `/api/v1/auth/me` | auth | `{success, data: User}` |
-| GET | `/api/v1/documents` | any (filter scope) | `{success, data: Document[], total}` |
-| **POST** | **`/api/v1/documents`** | **staff/admin** | **202 Accepted** → `{success, data: {document_id, job_id, status: QUEUED}}` |
-| GET | `/api/v1/documents/{id}` | any (check scope) | `{success, data: Document}` |
-| PATCH | `/api/v1/documents/{id}` | staff/admin | `{success, data: Document}` |
-| DELETE | `/api/v1/documents/{id}` | admin | 204 |
-| GET | `/api/v1/documents/{id}/versions` | any | `{success, data: DocumentVersion[]}` |
-| POST | `/api/v1/documents/{id}/versions` | staff/admin | 202 (upload mới) |
-| GET | `/api/v1/jobs/{id}` | auth (own/admin) | `{success, data: Job}` |
-| POST | `/api/v1/jobs/{id}/cancel` | auth (own/admin) | `{success, data: Job}` |
-| GET | `/api/v1/document-versions/{vid}/ocr-blocks` | any (check scope) | `{success, data: OcrBlock[]}` |
-| PATCH | `/api/v1/ocr-blocks/{id}` | staff/admin | `{success, data: OcrBlock}` |
-| POST | `/api/v1/search` | auth | `{success, data: SearchResult[]}` |
-| POST | `/api/v1/chat/query` | auth | `{success, data: {answer, citations, has_sufficient_evidence}}` |
-| GET | `/api/v1/admin/users` | admin | `{success, data: User[]}` |
-| PATCH | `/api/v1/admin/users/{id}` | admin | `{success, data: User}` |
-| GET | `/api/v1/admin/model-versions` | admin | `{success, data: ModelVersion[]}` |
-| POST | `/api/v1/admin/model-versions/{id}/activate` | admin | `{success, data: ModelVersion}` |
-| GET | `/api/v1/audit-logs` | admin | `{success, data: AuditLog[]}` |
+| Method | Path | Permission | Response | Cookie update |
+|---|---|---|---|---|
+| POST | `/api/v1/auth/login` | public | `{success, data: {access_token, expires_in, user}}` → `Set-Cookie: rt=...` | Set `rt` mới |
+| POST | `/api/v1/auth/refresh` | public (cookie) | `{success, data: {access_token, expires_in}}` | Rotate `rt` |
+| POST | `/api/v1/auth/logout` | public (cookie) | 204 No Content | Clear `rt` |
+| GET | `/api/v1/auth/me` | auth | `{success, data: User}` | — |
+| GET | `/api/v1/documents` | any (filter scope) | `{success, data: Document[], total}` | — |
+| **POST** | **`/api/v1/documents`** | **staff/admin** | **202 Accepted** → `{success, data: {document_id, job_id, status: QUEUED}}` | — |
+| GET | `/api/v1/documents/{id}` | any (check scope) | `{success, data: Document}` | — |
+| PATCH | `/api/v1/documents/{id}` | staff/admin | `{success, data: Document}` | — |
+| DELETE | `/api/v1/documents/{id}` | admin | 204 | — |
+| GET | `/api/v1/documents/{id}/versions` | any | `{success, data: DocumentVersion[]}` | — |
+| POST | `/api/v1/documents/{id}/versions` | staff/admin | 202 (upload mới) | — |
+| GET | `/api/v1/jobs/{id}` | auth (own/admin) | `{success, data: Job}` | — |
+| POST | `/api/v1/jobs/{id}/cancel` | auth (own/admin) | `{success, data: Job}` | — |
+| GET | `/api/v1/document-versions/{vid}/ocr-blocks` | any (check scope) | `{success, data: OcrBlock[]}` | — |
+| PATCH | `/api/v1/ocr-blocks/{id}` | staff/admin | `{success, data: OcrBlock}` | — |
+| POST | `/api/v1/search` | auth | `{success, data: SearchResult[]}` | — |
+| POST | `/api/v1/chat/query` | auth | `{success, data: {answer, citations, has_sufficient_evidence}}` | — |
+| GET | `/api/v1/admin/users` | admin | `{success, data: User[]}` | — |
+| PATCH | `/api/v1/admin/users/{id}` | admin | `{success, data: User}` | — |
+| GET | `/api/v1/admin/model-versions` | admin | `{success, data: ModelVersion[]}` | — |
+| POST | `/api/v1/admin/model-versions/{id}/activate` | admin | `{success, data: ModelVersion}` | — |
+| GET | `/api/v1/audit-logs` | admin | `{success, data: AuditLog[]}` | — |
+
+### 2.4 Auth pattern — Token storage
+
+> **Áp dụng cho cả FE và BE. Mọi sai lệch phải được review lại.**
+
+- **Access token**: JWT HS256, lifetime 15 phút.
+  - **FE**: giữ trong **memory** (Zustand store, không persist). Khi refresh tab → redirect `/login` để re-authenticate, đây là đánh đổi UX hợp lý với XSS.
+  - **FE**: truyền qua `Authorization: Bearer <access_token>`.
+- **Refresh token**: opaque random 32 bytes (KHÔNG phải JWT), lifetime 7 ngày.
+  - **FE**: server set qua `HttpOnly` cookie `rt`. FE chỉ gửi kèm theo request.
+  - **KHÔNG** lưu refresh token trong `localStorage`, `sessionStorage`, hoặc bất kỳ client storage nào.
+  - **KHÔNG** trả refresh token trong response body của `/auth/login` hay `/auth/refresh`.
+- **Cookie attributes** (bắt buộc): `HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth; Max-Age=604800`.
+- **Rotation + session_id**: mỗi login tạo `session_id` (UUID v7). Refresh token rotate theo session. Reuse → revoke toàn bộ session + audit log.
+- **Spec chi tiết**: xem `docs/api/auth-cookie.md` (cookie attrs, refresh table, audit events).
 
 ### 3.1 Upload Pattern — bất đồng bộ
 
