@@ -73,30 +73,47 @@ class ApiError(Exception):
 
 # ---- Convenience builders ----
 
-def unauthorized(detail: str | None = None, request_id: str = "") -> ApiError:
+def unauthorized(
+    detail: str | None = None,
+    request_id: str = "",
+    *,
+    code: str = ErrorCode.UNAUTHORIZED,
+) -> ApiError:
+    """401 Unauthorized. Có thể override `code` cho các nguyên nhân cụ thể
+    (vd: AUTH_INVALID_CREDENTIALS, AUTH_TOKEN_EXPIRED)."""
     return ApiError(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        code=ErrorCode.UNAUTHORIZED,
+        code=code,
         title="Chưa xác thực",
         detail=detail,
         request_id=request_id,
     )
 
 
-def forbidden(detail: str | None = None, request_id: str = "") -> ApiError:
+def forbidden(
+    detail: str | None = None,
+    request_id: str = "",
+    *,
+    code: str = ErrorCode.FORBIDDEN,
+) -> ApiError:
     return ApiError(
         status_code=status.HTTP_403_FORBIDDEN,
-        code=ErrorCode.FORBIDDEN,
+        code=code,
         title="Không đủ quyền",
         detail=detail,
         request_id=request_id,
     )
 
 
-def not_found(detail: str | None = None, request_id: str = "") -> ApiError:
+def not_found(
+    detail: str | None = None,
+    request_id: str = "",
+    *,
+    code: str = ErrorCode.NOT_FOUND,
+) -> ApiError:
     return ApiError(
         status_code=status.HTTP_404_NOT_FOUND,
-        code=ErrorCode.NOT_FOUND,
+        code=code,
         title="Không tìm thấy",
         detail=detail,
         request_id=request_id,

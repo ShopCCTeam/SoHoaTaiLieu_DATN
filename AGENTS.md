@@ -43,11 +43,13 @@ SoHoaTaiLieu_DATN/
 
 - ✅ Frontend Phase F0–F6 + contract sync (sinh types từ OpenAPI + mapper snake↔camel + mock auth không fallback admin + RFC 7807 401 + HttpOnly cookie).
 - ✅ Phase 0 BE scaffold: FastAPI app + Pydantic Settings + RFC 7807 errors + structlog JSON + health checks + 20 tests + ruff/mypy clean.
+- ✅ Phase 1 BE: Async SQLAlchemy + Alembic (users + document_scopes) + `/auth/login` + `/auth/me` + 3 demo user seed + Docker Compose (Postgres+pgvector+Redis+MinIO+API). 49 tests pass.
 - ✅ 27 Agent Skill đã cài.
 - ✅ 9 Project Rule đã thiết lập (rule 00–08).
+- ✅ ADR-0002: Async SQLAlchemy pattern.
 - 📖 Đọc tiến độ chi tiết ở `docs/PROGRESS.md`.
 
-**Sẵn sàng Phase 1 BE**: Auth thật + Alembic init + `/documents` GET.
+**Sẵn sàng Phase 2 BE**: `/documents` GET + RBAC scope filter + refresh token rotation.
 
 ## Tech stack cố định (KHÔNG thay đổi khi chưa có ADR mới)
 
@@ -98,6 +100,12 @@ pnpm --filter @ctsv/contracts generate
 # Workspace
 pnpm install
 pnpm check            # FE lint + typecheck + test + build + OpenAPI lint + BE test/ruff/mypy
+
+# Local dev stack (Postgres + Redis + MinIO + API qua Docker)
+make up               # docker compose lên
+make seed             # seed 3 demo users (admin/staff/student, password Demo@2026)
+make logs             # tail logs
+make down             # stop stack
 ```
 
 ## Ghi chú quan trọng
@@ -106,3 +114,4 @@ pnpm check            # FE lint + typecheck + test + build + OpenAPI lint + BE t
 - **Không commit** file `.env*`, `node_modules/`, `.next/`, `data/**`, `models/**`, file PDF mẫu, model checkpoint.
 - **Mỗi commit = 1 concern**. Frontend/Backend tách commit khi không coupling.
 - **Trước khi merge**: chạy `pnpm check` (lint + typecheck + test + openapi:lint + build + api:test/ruff/mypy) + đọc `docs/PROGRESS.md`.
+- **Backend không có Docker trên Windows?**: dùng `pnpm api:dev` chạy BE local với Python 3.11+ + Postgres local (cài qua installer). Hoặc test qua SQLite in-memory (`uv run pytest` đã pass 49 tests).

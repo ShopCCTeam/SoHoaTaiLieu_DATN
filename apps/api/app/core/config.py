@@ -55,7 +55,9 @@ class Settings(BaseSettings):
     minio_secure: bool = False
 
     # ---- Auth ----
-    jwt_secret: SecretStr = Field(default=SecretStr("dev-only-change-in-production"))
+    jwt_secret: SecretStr = Field(
+        default=SecretStr("dev-only-change-in-production-use-32-plus-bytes")
+    )
     jwt_algorithm: str = "HS256"
     jwt_access_token_ttl_seconds: int = 15 * 60  # 15 minutes
     jwt_refresh_token_ttl_seconds: int = 7 * 24 * 60 * 60  # 7 days

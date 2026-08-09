@@ -15,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.6.0,<3",
     # Auth & security
     "passlib[bcrypt]>=1.7.4,<2",
+    "bcrypt>=4.0.0,<5",
     "pyjwt>=2.9.0,<3",
     # Database (deferred — actual usage in Phase 1)
     "sqlalchemy>=2.0.36,<3",
@@ -31,6 +32,7 @@ dependencies = [
     "python-multipart>=0.0.20,<0.1",
     "orjson>=3.10.0,<4",
     "structlog>=24.4.0,<25",
+    "email-validator>=2.2.0,<3",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +46,7 @@ dev = [
     "freezegun>=1.5.0,<2",
     "respx>=0.21.0,<0.22",
     "types-passlib>=1.7.7.20240819",
+    "aiosqlite>=0.20.0,<0.21",
 ]
 
 [build-system]
@@ -76,6 +79,8 @@ ignore = ["S101"]  # allow assert in tests
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S", "B"]
 "alembic/**/*.py" = ["S"]
+# FastAPI pattern: Depends() in defaults là idiomatic.
+"app/**/*.py" = ["B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

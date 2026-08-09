@@ -7,8 +7,12 @@ import pytest
 from app.core.config import Settings, get_settings
 
 
-def test_default_settings_for_dev() -> None:
+def test_default_settings_for_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     """Default settings phải an toàn cho dev (localhost, placeholder secret)."""
+    # Clear test env vars set by conftest.
+    monkeypatch.delenv("JWT_ACCESS_TOKEN_TTL_SECONDS", raising=False)
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    get_settings.cache_clear()
     settings = Settings()  # type: ignore[call-arg]
     assert settings.app_env == "development"
     assert settings.postgres_host == "localhost"

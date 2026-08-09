@@ -1,15 +1,16 @@
 # apps/api — FastAPI Backend
 
-> **Trạng thái**: Phase 0 BE — scaffold. Có health checks, settings, RFC 7807 errors.
+> **Trạng thái**: Phase 1 BE — Auth (login/me) + DB migration + Docker compose.
 
-## Stack (đã chốt ở `docs/adr/0001-backend-stack.md`)
+## Stack (đã chốt ở `docs/adr/0001-backend-stack.md`, `0002-async-sqlalchemy-pattern.md`)
 
 - Python 3.11
 - FastAPI + Pydantic v2
 - SQLAlchemy 2.x (async) + Alembic
 - PostgreSQL 16 + pgvector
-- Celery + Redis
-- MinIO client
+- Celery + Redis (Phase 2+)
+- MinIO client (Phase 2+)
+- passlib[bcrypt] + PyJWT
 - Ruff + mypy + pytest
 
 ## Cấu trúc hiện tại
@@ -17,63 +18,94 @@
 ```
 apps/api/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py                 # FastAPI factory + health checks
-│   └── core/
-│       ├── config.py           # Pydantic Settings
-│       ├── constants.py        # Hard-coded constants
-│       ├── errors.py           # RFC 7807 Problem Details
-│       ├── logging.py          # structlog JSON
-│       └── middleware.py       # RequestIdMiddleware
-├── tests/
-│   ├── test_config.py
-│   ├── test_errors.py
-│   └── test_health.py
-├── pyproject.toml              # Ruff + mypy + pytest config
-└── README.md
+│   ├── main.py                 # FastAPI factory + health checks + routers
+│   ├── core/
+│   │   ├── config.py           # Pydantic Settings
+│   │   ├── constants.py        # Hard-coded constants
+│   │   ├── enums.py            # UserRole, DocumentScopeCode
+│   │   ├── errors.py           # RFC 7807 Problem Details
+│   │   ├── logging.py          # structlog JSON
+│   │   └── middleware.py       # RequestIdMiddleware
+│   ├── db/
+│   │   ├── base.py             # Declarative base
+│   │   └── session.py          # async engine + session factory
+│   ├── models/
+│   │   ├── user.py             # User ORM
+│   │   └── document_scope.py   # DocumentScope lookup table
+│   └── modules/
+│       └── auth/
+│           ├── router.py       # /auth/login + /auth/me
+│           ├── schemas.py      # LoginRequest, LoginResponse, UserPublic
+│           ├── security.py     # bcrypt + JWT helpers
+│           ├── service.py      # authenticate()
+│           ├── dependencies.py # get_current_user
+│           └── seed.py         # 3 demo users (admin/staff/student)
+├── alembic/
+│   ├── env.py                  # Async-aware
+│   └── versions/
+│       └── 0001_users_and_scopes.py
+├── tests/                       # 49 tests (unit + integration với SQLite)
+└── pyproject.toml
 ```
 
-## Setup local
+## Setup local với Docker (recommended)
 
 ```bash
-# Cài uv (https://github.com/astral-sh/uv)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Từ root repo:
+cp .env.example .env  # chỉnh nếu cần
+make up                # Postgres + Redis + MinIO + API lên
 
-# Tạo venv + install
+# Đợi ~10s cho Postgres healthcheck xong:
+make seed              # seed 3 demo users
+
+# Check
+curl http://localhost:8000/health/live
+
+# Login
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"admin@example.edu.vn","password":"Demo@2026"}' | jq -r .data.access_token)
+
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/auth/me
+```
+
+## Setup local không có Docker (dev only — cần Postgres cài local)
+
+```bash
 cd apps/api
 uv sync --extra dev
 
-# Chạy
-uv run uvicorn app.main:app --reload --port 8000
+# Set env vars thủ công (xem .env.example):
+export POSTGRES_HOST=localhost
+export JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
+# ...
 
-# Tests + lint + typecheck
-uv run pytest
-uv run ruff check
-uv run mypy app
+uv run alembic upgrade head    # apply migrations
+uv run python -m app.modules.auth.seed  # seed demo users
+
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
-## Endpoints hiện có (Phase 0)
+## Endpoints hiện có (Phase 1)
 
-| Method | Path           | Mục đích                             |
-|--------|----------------|--------------------------------------|
-| GET    | `/`            | Service metadata                     |
-| GET    | `/health/live` | Liveness probe                       |
-| GET    | `/health/ready`| Readiness probe (chưa check DB/Redis)|
-| GET    | `/docs`        | Swagger UI (auto-generated)          |
-| GET    | `/openapi.json`| OpenAPI 3.1 schema                   |
-
-Mọi error trả về RFC 7807 `application/problem+json` với các field:
-`type`, `title`, `status`, `detail`, `code`, `request_id`, optional `errors[]`.
+| Method | Path                    | Mục đích                       | Auth |
+|--------|-------------------------|--------------------------------|------|
+| GET    | `/`                     | Service metadata               | -    |
+| GET    | `/health/live`          | Liveness probe                 | -    |
+| GET    | `/health/ready`         | Readiness probe                | -    |
+| POST   | `/api/v1/auth/login`    | Đăng nhập → access_token       | -    |
+| GET    | `/api/v1/auth/me`       | Thông tin user hiện tại        | Bearer |
+| GET    | `/docs`                 | Swagger UI                     | -    |
+| GET    | `/openapi.json`         | OpenAPI 3.1 schema             | -    |
 
 ## Test strategy
 
-- `pytest` unit + integration.
-- Integration tests dùng TestClient của FastAPI (in-process).
-- Database tests dùng `pytest-asyncio` + `asyncpg` (Phase 1 trở đi).
+- `pytest` 49 tests, dùng SQLite in-memory (driver `aiosqlite`) cho unit + integration.
+- Override `get_session` dependency qua `app.dependency_overrides` để không cần Postgres thật.
+- pgvector-specific test sẽ thêm khi Phase 2 cần.
 
-## Khi nào tiếp Phase 1
-
-Sau khi commit này có CI xanh + commit Phase 0 BE được review:
-- `/auth/login` + `/auth/refresh` (JWT issue + cookie rotation)
-- Alembic init + migration đầu tiên (users + scopes)
-- `/documents` GET với RBAC + scope filter
+```bash
+cd apps/api
+uv run pytest
+uv run pytest --cov=app
+```

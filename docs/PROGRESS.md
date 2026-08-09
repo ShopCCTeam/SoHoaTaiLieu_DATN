@@ -48,6 +48,74 @@
 
 ---
 
+## 2026-08-09 — Phase 1 BE: Auth + DB Migration + Docker
+
+**Việc đã làm**:
+
+- **Database layer** (`apps/api/app/db/`):
+  - `base.py`: SQLAlchemy 2.x declarative base.
+  - `session.py`: async engine singleton + `get_session` FastAPI dependency (commit on success, rollback on exception).
+
+- **ORM models** (`apps/api/app/models/`):
+  - `user.py`: User (UUID PK, email UNIQUE, password_hash, full_name, role, department, is_active, created_at, updated_at).
+  - `document_scope.py`: DocumentScope lookup (PUBLIC / STUDENT_AFFAIRS / INTERNAL).
+  - `app/core/enums.py`: UserRole + DocumentScopeCode `StrEnum`.
+
+- **Alembic** (`apps/api/alembic/`):
+  - `alembic.ini` + async-aware `env.py` (URL override cho SQLite test).
+  - `versions/0001_users_and_scopes.py`: tạo users + document_scopes + seed 3 scopes.
+
+- **Auth module** (`apps/api/app/modules/auth/`):
+  - `security.py`: `hash_password`/`verify_password` (bcrypt cost ≥ 12), `create_access_token`/`decode_access_token` (HS256).
+  - `schemas.py`: LoginRequest, UserPublic, LoginResponse, MeResponse.
+  - `service.py`: `authenticate()` + `get_user_by_email()` + `get_user_by_id()`.
+  - `dependencies.py`: `get_current_user` (Bearer token → 401 RFC 7807 với code cụ thể).
+  - `router.py`: `POST /api/v1/auth/login` + `GET /api/v1/auth/me` (envelope `{success, data}`).
+  - `seed.py`: CLI tạo 3 demo users (admin/staff/student, password `Demo@2026`).
+
+- **Wire-up**: `app/main.py` include auth router với prefix `/api/v1`.
+
+- **Error helpers** (`app/core/errors.py`):
+  - `unauthorized()` / `forbidden()` / `not_found()` accept optional `code=` override cho ngữ cảnh cụ thể (AUTH_INVALID_CREDENTIALS, AUTH_TOKEN_EXPIRED, ...).
+
+- **Infra** (`infra/docker/`):
+  - `docker-compose.yml`: pgvector/pgvector:pg16 + redis:7-alpine + minio + api (bind mount source).
+  - `Dockerfile.api`: Python 3.11-slim + uv + FastAPI dev.
+  - `Makefile` ở root: `make up/down/logs/db-shell/api-shell/seed/test/lint/typecheck/check`.
+  - `.env.example` (root) — full env contract cho local dev.
+
+- **Plan**: `docs/plans/2026-08-09-phase-1-be-auth-db.md` (writing-plans skill).
+- **ADR**: `docs/adr/0002-async-sqlalchemy-pattern.md` — chốt async SQLAlchemy + asyncpg.
+
+- **Tests**: 49 pass (từ 20 ở Phase 0).
+  - `tests/test_db_session.py` (3), `tests/test_models.py` (5), `tests/test_alembic.py` (2), `tests/test_auth_security.py` (7), `tests/test_auth_router.py` (10), `tests/test_auth_seed.py` (2) — và 20 tests cũ.
+
+**Trạng thái sau commit này**:
+- ✅ 49 pytest pass.
+- ✅ ruff clean (B008 ignore cho FastAPI Depends — idiomatic).
+- ✅ mypy strict clean.
+- ✅ `pnpm check` PASS (FE 26/26 + lint + typecheck + openapi:lint + build).
+- ✅ OpenAPI runtime schema sync với contract: `/api/v1/auth/login`, `/api/v1/auth/me`.
+- ✅ Docker compose file cho local dev (cần Docker để chạy — Windows hiện không có Docker, dùng SQLite test cho CI/local verify).
+
+**Đã hỏi user và chốt**:
+- Scope: Auth + DB migration (chưa `/documents` GET ở commit này).
+- DB engine: Postgres 16 local.
+- Docker compose: full stack (Postgres+Redis+MinIO+API).
+
+**Risk + đã mitigate**:
+- ⚠️ Python 3.12 (env hiện tại) chưa có `uuid.uuid7()` → dùng `uuid.uuid4()` (note trong middleware).
+- ⚠️ Docker chưa có trên máy local → verify qua SQLite test (aiosqlite) + OpenAPI runtime schema.
+- ⚠️ JWT secret dev length: đã bump lên ≥ 32 bytes (PyJWT warning).
+
+**Commit kế tiếp**: `phase-2-documents-rbac` (`/documents` GET + RBAC scope filter + refresh token rotation).
+
+**Chi tiết**: `docs/plans/2026-08-09-phase-1-be-auth-db.md`.
+
+---
+
+## 2026-08-09 — Khởi tạo Workspace Rules & Skills
+
 ## 2026-08-09 — Khởi tạo Workspace Rules & Skills
 
 **Việc đã làm**:

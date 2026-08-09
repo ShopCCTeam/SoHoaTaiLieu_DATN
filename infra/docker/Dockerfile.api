@@ -1,0 +1,28 @@
+# Multi-stage Dockerfile cho FastAPI dev.
+# Stage 1: install dependencies với uv.
+# Stage 2: copy source (bind mount sẽ override ở docker-compose).
+
+FROM python:3.11-slim AS base
+
+# Cài uv (Astral installer).
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+WORKDIR /app
+
+# Copy pyproject + lock trước để cache layer.
+COPY pyproject.toml uv.lock* ./
+
+# Install dependencies (không cần dev deps cho runtime image).
+RUN uv sync --frozen --no-dev || uv sync --no-dev
+
+# Copy source (production image).
+# Trong docker-compose dev, volume mount sẽ override source.
+COPY app ./app
+
+EXPOSE 8000
+
+# Healthcheck cho container orchestration.
+HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')" || exit 1
+
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
