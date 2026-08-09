@@ -1,52 +1,266 @@
 ---
-description: Quy tắc Backend áp dụng cho server-side code (sẽ dùng khi Phase BE bắt đầu)
-globs: apps/api/**/*.ts,apps/api/**/*.py,packages/**/*.{ts,py}
+description: Quy tắc Backend áp dụng cho server-side code (FastAPI / Python)
+globs: apps/api/**/*.py,apps/api/**/*.toml,packages/**/*.{ts,py}
 alwaysApply: false
 ---
 
-# Backend Standards (sẽ áp dụng khi Phase BE bắt đầu)
+# Backend Standards — FastAPI / Python
 
-> File này là placeholder cho Phase BE. Cập nhật chi tiết khi chọn xong stack (Node.js vs Python).
+> Áp dụng cho Phase BE trở đi. Đã chốt stack ở `docs/adr/0001-backend-stack.md`.
 
-## Nguyên tắc chung (đã chốt)
-- **Layered Architecture**: Controller → Service → Repository → DB.
+## 1. Nguyên tắn chung (bắt buộc)
+
+- **Layered Architecture**: `presentation` → `application` (use case) → `domain` (entity) → `infrastructure` (DB, MinIO, Redis).
 - **API Design**: RESTful, JSON, versioned URL (`/api/v1/...`).
-- **Auth**: JWT bearer token + RBAC matrix (đã có sẵn ở FE `lib/auth/permissions.ts`).
-- **Validation**: validate ở boundary (controller/handler), dùng Zod (TS) hoặc Pydantic (Python).
-- **Error**: HTTP status chuẩn + JSON `{success, error, code}`.
-- **Logging**: structured log (JSON), có `requestId`, `userId`, không log sensitive data.
-- **Testing**: Unit test cho service, integration test cho endpoint.
+- **Auth**: JWT bearer token (HS256, 15 phút) + refresh token rotation (7 ngày). Lưu `Authorization: Bearer <token>`.
+- **Validation**: validate ở boundary handler bằng **Pydantic v2**. Không dùng `any` / `dict` rồi parse thủ công.
+- **Logging**: structured log (JSON), có `requestId`, `userId`, **KHÔNG** log password, token, PDF content, OCR text, PII.
+- **Testing**: pytest + pytest-asyncio + HTTPX. Unit test cho service, integration test cho endpoint.
 
-## API Contract với FE (đã chốt)
-- `GET /api/v1/documents?status=&q=&page=&limit=` → `{success, data: Document[], total}`
-- `POST /api/v1/documents` (multipart) → `{success, data: Document}`
-- `GET /api/v1/documents/:id` → `{success, data: Document}`
-- `POST /api/v1/documents/:id/versions` → `{success, data: DocumentVersion}`
-- `POST /api/v1/document-versions/:id/ocr` (trigger) → `{success, data: OcrJob}`
-- `PATCH /api/v1/document-versions/:id/metadata` → `{success, data: DocumentVersion}`
-- `POST /api/v1/document-versions/:id/approve` → `{success, data: DocumentVersion}`
-- `POST /api/v1/search` body `{q, filters}` → `{success, data: SearchResult[], total}`
-- `POST /api/v1/chat/query` body `{message, history}` → `{success, data: {answer, citations}}`
-- `GET /api/v1/admin/users` (admin) → `{success, data: User[]}`
-- `POST /api/v1/admin/model-versions/:id/activate` → `{success, data: ModelVersion}`
+## 2. API Response Contract
 
-## Security checklist (bắt buộc)
-- [ ] Mọi endpoint có auth trừ `/auth/login` và `/health`.
-- [ ] Mọi endpoint có permission check (`hasPermission(user, 'canEditOCR')`).
+### 2.1 Success — envelope chuẩn
+
+```json
+{
+  "success": true,
+  "data": { /* payload */ },
+  "total": 123,    // optional, chỉ ở list endpoint
+  "page": 1,       // optional
+  "limit": 20      // optional
+}
+```
+
+- `data` có thể là object, array, hoặc null.
+- Không bắt buộc `meta` ở MVP — chỉ thêm khi cần (VD: pagination cursor).
+
+### 2.2 Error — RFC 7807 Problem Details
+
+> **Bắt buộc** dùng cho mọi error response. Đã chốt ở lựa chọn "C: cả 2".
+
+```http
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/problem+json
+
+{
+  "type": "https://api.example.edu.vn/problems/validation-error",
+  "title": "Dữ liệu không hợp lệ",
+  "status": 422,
+  "detail": "Tệp tải lên không đúng định dạng PDF",
+  "code": "INVALID_FILE_TYPE",
+  "request_id": "req_01HXYZ...",
+  "errors": [
+    { "field": "file", "message": "MIME magic bytes không khớp %PDF-" }
+  ]
+}
+```
+
+- `type` URI định danh lỗi (cùng origin với API).
+- `title` tiếng Việt, ngắn gọn.
+- `status` khớp HTTP status code.
+- `code` enum machine-readable (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION_ERROR`, `INVALID_FILE_TYPE`, `RATE_LIMIT`, `INTERNAL`).
+- `request_id` UUID v7, khớp với log server.
+
+### 2.3 HTTP Status Codes
+
+| Code | Khi nào |
+|---|---|
+| 200 | GET thành công |
+| 201 | Tạo resource thành công (sync) |
+| 202 | Accepted — job bất đồng bộ đã queue |
+| 204 | Xoá thành công (không body) |
+| 400 | Body không parse được |
+| 401 | Thiếu/invalid JWT |
+| 403 | Auth OK nhưng thiếu permission |
+| 404 | Resource không tồn tại |
+| 409 | Conflict (duplicate, version cũ) |
+| 413 | File quá lớn (> 50MB) |
+| 415 | MIME không hỗ trợ |
+| 422 | Pydantic validation fail |
+| 429 | Rate limit |
+| 500 | Lỗi server không expect |
+
+## 3. Endpoints (chốt ở `docs/api/openapi.yaml`)
+
+Tóm tắt các endpoint quan trọng (full spec ở `docs/api/openapi.yaml`):
+
+| Method | Path | Permission | Response |
+|---|---|---|---|
+| POST | `/api/v1/auth/login` | public | `{success, data: {access_token, refresh_token, user}}` |
+| POST | `/api/v1/auth/refresh` | public | `{success, data: {access_token, expires_in}}` |
+| POST | `/api/v1/auth/logout` | auth | 204 |
+| GET | `/api/v1/auth/me` | auth | `{success, data: User}` |
+| GET | `/api/v1/documents` | any (filter scope) | `{success, data: Document[], total}` |
+| **POST** | **`/api/v1/documents`** | **staff/admin** | **202 Accepted** → `{success, data: {document_id, job_id, status: QUEUED}}` |
+| GET | `/api/v1/documents/{id}` | any (check scope) | `{success, data: Document}` |
+| PATCH | `/api/v1/documents/{id}` | staff/admin | `{success, data: Document}` |
+| DELETE | `/api/v1/documents/{id}` | admin | 204 |
+| GET | `/api/v1/documents/{id}/versions` | any | `{success, data: DocumentVersion[]}` |
+| POST | `/api/v1/documents/{id}/versions` | staff/admin | 202 (upload mới) |
+| GET | `/api/v1/jobs/{id}` | auth (own/admin) | `{success, data: Job}` |
+| POST | `/api/v1/jobs/{id}/cancel` | auth (own/admin) | `{success, data: Job}` |
+| GET | `/api/v1/document-versions/{vid}/ocr-blocks` | any (check scope) | `{success, data: OcrBlock[]}` |
+| PATCH | `/api/v1/ocr-blocks/{id}` | staff/admin | `{success, data: OcrBlock}` |
+| POST | `/api/v1/search` | auth | `{success, data: SearchResult[]}` |
+| POST | `/api/v1/chat/query` | auth | `{success, data: {answer, citations, has_sufficient_evidence}}` |
+| GET | `/api/v1/admin/users` | admin | `{success, data: User[]}` |
+| PATCH | `/api/v1/admin/users/{id}` | admin | `{success, data: User}` |
+| GET | `/api/v1/admin/model-versions` | admin | `{success, data: ModelVersion[]}` |
+| POST | `/api/v1/admin/model-versions/{id}/activate` | admin | `{success, data: ModelVersion}` |
+| GET | `/api/v1/audit-logs` | admin | `{success, data: AuditLog[]}` |
+
+### 3.1 Upload Pattern — bất đồng bộ
+
+**Quy tắc**: Upload PDF / file lớn KHÔNG trả Document ngay. Trả **202 Accepted** với job_id.
+
+```http
+POST /api/v1/documents
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+{
+  "file": <PDF binary>,
+  "title": "Quy chế CTSV 2026",
+  "type": "QUY_CHE",
+  "scope": "STUDENT_AFFAIRS",
+  "tags": ["quyche", "2026"]
+}
+```
+
+**Response 202 Accepted**:
+```json
+{
+  "success": true,
+  "data": {
+    "document_id": "doc_01HXYZ...",
+    "job_id": "job_01HABC...",
+    "status": "QUEUED"
+  }
+}
+```
+
+**FE poll** `GET /api/v1/jobs/{job_id}` mỗi **2 giây**, tối đa 60 lần. Sau đó dừng và hiển thị "đang xử lý, vui lòng tải lại sau".
+
+Lý do: OCR pipeline mất 30s–5 phút cho 1 PDF 50 trang. Trả Document ngay sẽ block HTTP worker.
+
+## 4. Idempotency
+
+- Mọi POST mutation **BẠN BẮT BUỘC** nhận header `Idempotency-Key: <uuid>`.
+- Nếu cùng key đã xử lý trong 24 giờ → trả lại response cũ (không tạo resource mới).
+- Implementation: lưu `(idempotency_key, response_body, status_code, created_at)` trong Redis (TTL 24h).
+
+## 5. Security Checklist (bắt buộc)
+
+- [ ] Mọi endpoint có auth trừ `/auth/login`, `/auth/refresh`, `/health`.
+- [ ] Mọi endpoint có permission check (`has_permission(user, Permission.X)`).
+- [ ] Permission check **TRƯỚC** retrieval (vector search & DB query). Không filter sau.
 - [ ] Input validation đầy đủ (body, query, param, file MIME).
-- [ ] Upload file: check MIME magic bytes, không tin extension.
-- [ ] SQL injection: dùng parameterized query / ORM.
-- [ ] Rate limit cho `/auth/login`, `/chat/query`.
-- [ ] CORS: chỉ allow origin từ env.
-- [ ] Secrets: qua env, không hardcode.
+- [ ] Upload file: check MIME magic bytes, **KHÔNG** tin extension.
+- [ ] SQL injection: dùng parameterized query / SQLAlchemy ORM (không raw SQL).
+- [ ] Rate limit cho `/auth/login` (5/15min), `/chat/query` (30/min), upload (10/hour).
+- [ ] CORS: chỉ allow origin từ env `APP_CORS_ORIGINS`.
+- [ ] Secrets: qua env, **KHÔNG** hardcode.
+- [ ] Password: bcrypt cost ≥ 12 hoặc Argon2id.
+- [ ] Audit log: ghi mọi mutation quan trọng vào `audit_logs`.
+- [ ] Log structured JSON, **không** log password, token, PDF content, OCR text.
 
-## Background job
-- OCR job → queue (BullMQ/Arq nếu Node; Celery/RQ nếu Python).
-- Embedding job → chạy async sau khi OCR approved.
-- Trả về `jobId` ngay, FE poll `/ocr-jobs/:id` hoặc dùng WebSocket.
+## 6. Background Job (Celery)
 
-## Ref khi Phase BE
-- Skill `.skills/nodejs-best-practices/` (decision tree chọn framework).
-- Skill `.skills/fastapi-local-oop-background-task-system/` (nếu chọn Python).
-- Skill `.skills/fastapi-generic-dynamic-filtering-with-pydantic-and-sqlalchemy/`.
-- Skill `.skills/postgres-sql-generator-from-english/` (sinh SQL từ tiếng Việt/Anh).
+- **Broker**: Redis (`celery_app.conf.broker_url = settings.REDIS_URL`).
+- **Backend**: Redis (`celery_app.conf.result_backend = settings.REDIS_URL`).
+- **Idempotency**: mỗi task có `idempotency_key` (UUID v7 + resource_id), retry ≤ 3 lần (backoff 60s/300s/1800s).
+- **Progress update**: cập nhật `jobs.progress` mỗi 5–10% qua `self.update_state(state='PROGRESS', meta={...})`.
+- **Task types**: `ocr.run`, `embedding.run`, `indexing.run`, `reindex.model_version`.
+
+```python
+# apps/api/app/workers/celery_app.py
+from celery import Celery
+
+celery_app = Celery("ctsv", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
+celery_app.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    task_track_started=True,
+    task_acks_late=True,
+    worker_max_tasks_per_child=100,
+    timezone="UTC",
+)
+```
+
+## 7. Error Handling (FastAPI)
+
+```python
+# apps/api/app/core/errors.py
+from fastapi import HTTPException, status
+from pydantic import BaseModel
+from uuid import uuid4
+
+class ProblemDetail(BaseModel):
+    type: str
+    title: str
+    status: int
+    detail: str | None = None
+    code: str
+    request_id: str
+    errors: list[dict] | None = None
+
+class APIError(HTTPException):
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        title: str,
+        detail: str | None = None,
+        errors: list[dict] | None = None,
+    ):
+        problem = ProblemDetail(
+            type=f"{settings.API_BASE_URL}/problems/{code.lower()}",
+            title=title,
+            status=status_code,
+            detail=detail,
+            code=code,
+            request_id=str(uuid4()),
+            errors=errors,
+        )
+        super().__init__(status_code=status_code, detail=problem.model_dump())
+```
+
+Exception handler global:
+
+```python
+@app.exception_handler(APIError)
+async def api_error_handler(request: Request, exc: APIError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.detail,
+        media_type="application/problem+json",
+    )
+```
+
+## 8. Quality Gate (CI chạy)
+
+```bash
+cd apps/api
+uv sync --frozen
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy app
+uv run pytest --cov=app --cov-fail-under=80
+uv run alembic upgrade head    # test migration up
+uv run alembic downgrade -1    # test migration down
+uv run alembic upgrade head    # restore
+```
+
+## 9. Ref khi code
+
+- Skill `.skills/fastapi-local-oop-background-task-system/`
+- Skill `.skills/fastapi-generic-dynamic-filtering-with-pydantic-and-sqlalchemy/`
+- Skill `.skills/langchain-local-pdf-rag-pipeline/`
+- Skill `.skills/ocr-text-to-wikimedia-source-converter/`
+- Skill `.skills/postgres-sql-generator-from-english/`
+- DOC `docs/api/openapi.yaml` (single source of truth cho contract)
+- DOC `docs/domain/rbac-matrix.md` (ma trận permission)
+- DOC `docs/domain/document-lifecycle.md` (state machine)
+- DOC `docs/domain/citation-spec.md` (RAG citation format)
+- DOC `docs/adr/0001-backend-stack.md` (lý do chọn stack)

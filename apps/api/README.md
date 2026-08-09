@@ -2,7 +2,7 @@
 
 > **Trạng thái**: scaffold. Chưa có code. Sẽ viết ở Phase 0 BE sau khi được phê duyệt plan.
 
-## Stack (đã chốt ở `docs/adr/0001-stack.md`)
+## Stack (đã chốt ở `docs/adr/0001-backend-stack.md`)
 
 - Python 3.11
 - FastAPI + Pydantic v2

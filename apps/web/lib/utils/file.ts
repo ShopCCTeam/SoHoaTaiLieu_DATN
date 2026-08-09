@@ -34,10 +34,11 @@ export function validateFile(file: File): { valid: boolean; error?: string } {
 export async function validateFileMagicBytes(file: File): Promise<{ valid: boolean; error?: string }> {
   if (file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") {
     try {
-      const slice = file.slice(0, 4);
-      const buffer = await slice.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      const header = String.fromCharCode.apply(null, Array.from(bytes));
+      // Đọc toàn bộ file rồi lấy 4 byte đầu — an toàn hơn file.slice(0,4).arrayBuffer()
+      // vì jsdom / một số môi trường không có sẵn Blob.slice().arrayBuffer().
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer.slice(0, 4));
+      const header = new TextDecoder("ascii").decode(bytes);
       if (header !== "%PDF") {
         return {
           valid: false,

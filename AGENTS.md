@@ -6,8 +6,8 @@
 ## Dự án
 
 **Tên**: Hệ thống Số hoá & Quản lý Tài liệu Công tác Sinh viên
-**Stack**: Next.js 14 (App Router) + TypeScript + Tailwind + Zustand + TanStack Query (FE) — sẽ bổ sung Backend (chưa chốt Node.js hay Python).
-**Tính năng cốt lõi**: OCR (PaddleOCR/Tesseract) + RAG (LangChain + BGE-M3 + Qdrant + Ollama) + RBAC 3 roles.
+**Stack**: Next.js 14 (Frontend) + FastAPI / Python 3.11 (Backend) — đã chốt ở ADR-0001.
+**Tính năng cốt lõi**: OCR (PaddleOCR/Tesseract) + RAG (LangChain + BGE-M3 + Ollama) + RBAC 3 roles.
 **Repo**: `E:\SoHoaTaiLieu_DATN` (monorepo pnpm workspaces).
 
 ## Cấu trúc repo
@@ -38,11 +38,11 @@ SoHoaTaiLieu_DATN/
 
 ## Trạng thái hiện tại
 
-- ✅ Frontend Phase F0–F6 đã walkthrough, đang chờ người khác review & fix 4 MUST-FIX.
-- ⏸ Phase 0 Backend chưa bắt đầu (chờ lệnh).
+- ✅ Frontend Phase F0–F6 đã xong, qua review & fix 4 MUST-FIX, lint/build/test pass.
+- ✅ Foundation backend đã chốt (ADR-0001, OpenAPI, RBAC, lifecycle, CI workflow).
+- ⏸ Phase 0 BE chưa bắt đầu (chờ lệnh "Bắt đầu Phase 0 BE").
 - ✅ 27 Agent Skill đã cài.
-- ✅ 8 Project Rule đã thiết lập (rule 00–07).
-- ✅ Rule 08 (governance) bổ sung sau review P0.
+- ✅ 9 Project Rule đã thiết lập (rule 00–08).
 - 📖 Đọc tiến độ chi tiết ở `docs/PROGRESS.md`.
 
 ## Tech stack cố định (KHÔNG thay đổi khi chưa có ADR mới)
@@ -54,7 +54,7 @@ SoHoaTaiLieu_DATN/
 - Zod + React Hook Form.
 - Vitest + Testing Library, Playwright (E2E).
 
-**Backend** (đã chốt trong `docs/adr/0001-stack.md`):
+**Backend** (đã chốt trong `docs/adr/0001-backend-stack.md`):
 - Python 3.11 + FastAPI + Pydantic v2.
 - SQLAlchemy 2.x + Alembic.
 - PostgreSQL 16 + pgvector (vector + full-text + metadata).
@@ -78,15 +78,25 @@ pnpm dev              # http://localhost:3000
 pnpm test             # Vitest unit
 pnpm build            # Production build
 pnpm lint             # ESLint
+pnpm typecheck        # tsc --noEmit
 
 # Workspace
+pnpm install
 pnpm -r build         # build tất cả apps
 pnpm -r test          # test tất cả apps
+pnpm check            # lint + typecheck + test
+
+# Backend (sau khi Phase 0 BE có code)
+cd apps/api
+uv sync
+uv run pytest
+uv run ruff check .
+uv run mypy app
 ```
 
 ## Ghi chú quan trọng
 
 - **Ngôn ngữ giao tiếp**: 100% tiếng Việt với user. Code identifier tiếng Anh.
-- **Không commit** file `.env`, `node_modules/`, `.next/`, file PDF mẫu lớn.
-- **Mỗi Phase**: mở 1 git worktree riêng (skill `using-git-worktrees`).
-- **Trước khi merge**: chạy `pnpm test` + `pnpm build` + đọc `docs/PROGRESS.md`.
+- **Không commit** file `.env`, `node_modules/`, `.next/`, `data/**`, `models/**`, file PDF mẫu, model checkpoint.
+- **Mỗi commit = 1 concern**. Frontend/Backend tách commit khi không coupling.
+- **Trước khi merge**: chạy `pnpm check` (lint + typecheck + test) + build + đọc `docs/PROGRESS.md`.

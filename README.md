@@ -144,7 +144,7 @@ alembic upgrade head
 | `docs/domain/rbac-matrix.md` | Ma trận phân quyền |
 | `docs/domain/document-lifecycle.md` | State machine cho Document/Job/Index |
 | `docs/domain/citation-spec.md` | Schema citation RAG |
-| `docs/adr/0001-stack.md` | ADR-001 (sẽ viết trong commit 3) |
+| `docs/adr/0001-backend-stack.md` | ADR-0001 — chốt stack Python + pgvector |
 
 ## 📝 License & bản quyền
 

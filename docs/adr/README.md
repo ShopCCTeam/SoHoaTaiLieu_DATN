@@ -9,7 +9,7 @@ NNNN-tieu-de-ngan-gon.md
 ```
 
 Ví dụ:
-- `0001-stack.md` — chốt backend stack.
+- `0001-backend-stack.md` — chốt backend stack.
 - `0002-pgvector-vs-qdrant.md` — chốt vector store.
 - `0003-monolith-vs-microservice.md` — modular monolith.
 
@@ -44,4 +44,4 @@ Ví dụ:
 
 ## Hiện có
 
-- [ADR-0001: Chốt Backend Stack](./0001-stack.md)
+- [ADR-0001: Chốt Backend Stack](./0001-backend-stack.md)
