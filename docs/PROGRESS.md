@@ -99,11 +99,16 @@
 - ✅ Docker compose file cho local dev (cần Docker để chạy — Windows hiện không có Docker, dùng SQLite test cho CI/local verify).
 
 **Verify gate (Phase 1 — STATE AT 2026-08-09 21:30)**:
-- ✅ Static verified — ruff + mypy strict clean
-- ✅ Unit verified — 49/49 tests pass (SQLite in-memory via aiosqlite)
-- ⚠️ **Postgres verified** — CHƯA chạy alembic upgrade trên PG thật; chỉ test SQLite
-- ⚠️ **Docker verified** — CHƯA start docker stack; máy local chưa cài Docker Desktop
-- ⚠️ **CI verified** — CHƯA có postgres service trong api job; chỉ chạy pytest SQLite
+
+| Verify type | Status | Evidence |
+|---|---|---|
+| Static verified | ✅ | ruff + mypy strict clean |
+| Unit verified | ✅ | 49/49 tests pass (SQLite in-memory via aiosqlite) |
+| Postgres verified | ⚠️ | CHƯA chạy alembic upgrade trên PG thật; chỉ test SQLite |
+| Docker verified | ⚠️ | CHƯA start docker stack; máy local chưa cài Docker Desktop |
+| CI verified | ⚠️ | CHƯA có postgres service trong api job; chỉ chạy pytest SQLite |
+
+**Ghi chú**: Chỉ ghi ✅ cho verify type thực sự đã pass. Không ghi "VERIFIED" chung chung.
 
 **Đã hỏi user và chốt**:
 - Scope: Auth + DB migration (chưa `/documents` GET ở commit này).
