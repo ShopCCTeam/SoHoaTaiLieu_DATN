@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     refresh_cookie_name: str = "rt"
     refresh_cookie_path: str = "/api/v1/auth"
     refresh_cookie_secure: bool = False  # True in production (HTTPS)
+    trust_proxy_headers: bool = False  # True if behind reverse proxy (X-Forwarded-For)
 
     # ---- OCR ----
     ocr_default_confidence_threshold: float = 0.9
@@ -89,6 +90,18 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [v.strip() for v in value.split(",") if v.strip()]
         return value
+
+    # ---- Cookie Secure ----
+    @property
+    def cookie_secure(self) -> bool:
+        """Secure flag cho Set-Cookie.
+
+        Bật nếu app_env ∈ {production, staging} (HTTPS bắt buộc).
+        Override bằng refresh_cookie_secure (cho phép True ở staging test).
+        """
+        if self.app_env in {"production", "staging"}:
+            return True
+        return self.refresh_cookie_secure
 
     # ---- Seed guard ----
     @property

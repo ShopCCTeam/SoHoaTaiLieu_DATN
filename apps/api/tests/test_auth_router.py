@@ -12,15 +12,19 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC
+from unittest.mock import MagicMock
 
 import pytest
+from fastapi import Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.core.config import get_settings
 from app.db.session import get_session
 from app.models.refresh_session import RefreshSession
 from app.models.user import User
+from app.modules.auth.router import _parse_ip
 
 
 def _extract_rt_cookie(cookie_header: str) -> str | None:
@@ -850,3 +854,170 @@ async def test_revoke_all_user_sessions_returns_count(
         )
         await session.commit()
     assert count_2 == 0, f"lần 2 phải return 0, got {count_2}"
+
+
+# ---------------------------------------------------------------------------
+# P1-b: _parse_ip unit tests
+# ---------------------------------------------------------------------------
+
+def test_parse_ip_valid_ipv4(monkeypatch: pytest.MonkeyPatch) -> None:
+    """IPv4 hợp lệ → trả về đúng giá trị."""
+    settings = get_settings()
+    mock_request = MagicMock(spec=Request)
+    mock_request.headers.get.return_value = None
+    mock_request.client.host = "192.168.1.100"
+    result = _parse_ip(settings, mock_request)
+    assert result == "192.168.1.100"
+
+
+def test_parse_ip_valid_ipv6(monkeypatch: pytest.MonkeyPatch) -> None:
+    """IPv6 hợp lệ → trả về đúng giá trị."""
+    settings = get_settings()
+    mock_request = MagicMock(spec=Request)
+    mock_request.headers.get.return_value = None
+    mock_request.client.host = "2001:db8::1"
+    result = _parse_ip(settings, mock_request)
+    assert result == "2001:db8::1"
+
+
+def test_parse_ip_xff_valid_with_trust(monkeypatch: pytest.MonkeyPatch) -> None:
+    """XFF hợp lệ + trust_proxy_headers=True → dùng XFF."""
+    get_settings.cache_clear()
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
+    get_settings.cache_clear()
+    settings = get_settings()
+    assert settings.trust_proxy_headers is True
+
+    mock_request = MagicMock(spec=Request)
+    mock_request.headers.get.return_value = "203.0.113.50, 10.0.0.1"
+    mock_request.client.host = "127.0.0.1"
+    result = _parse_ip(settings, mock_request)
+    assert result == "203.0.113.50"  # first IP from XFF
+
+
+def test_parse_ip_xff_ignored_without_trust(monkeypatch: pytest.MonkeyPatch) -> None:
+    """trust_proxy_headers=False → XFF bị bỏ qua, dùng client.host."""
+    from app.core.config import get_settings
+    get_settings.cache_clear()
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    assert settings.trust_proxy_headers is False
+
+    mock_request = MagicMock(spec=Request)
+    mock_request.headers.get.return_value = "203.0.113.50"
+    mock_request.client.host = "192.168.0.1"
+    result = _parse_ip(settings, mock_request)
+    assert result == "192.168.0.1"  # NOT the XFF value
+
+
+def test_parse_ip_invalid_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Giá trị không parse được → trả về None (không raise)."""
+    settings = get_settings()
+    mock_request = MagicMock(spec=Request)
+    mock_request.headers.get.return_value = None
+    mock_request.client.host = "not-an-ip-at-all-!!!"
+    result = _parse_ip(settings, mock_request)
+    assert result is None
+
+
+def test_parse_ip_xff_invalid_with_trust_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """XFF không hợp lệ + trust_proxy_headers=True → trả về None."""
+    from app.core.config import get_settings
+    get_settings.cache_clear()
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
+    get_settings.cache_clear()
+    settings = get_settings()
+
+    mock_request = MagicMock(spec=Request)
+    mock_request.headers.get.return_value = "garbage-ip-value"
+    mock_request.client.host = None
+    result = _parse_ip(settings, mock_request)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# P1-c: cookie_secure property tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "app_env,refresh_cookie_secure,expected_secure",
+    [
+        ("development", False, False),
+        ("development", True, True),
+        ("staging", False, True),
+        ("staging", True, True),
+        ("production", False, True),
+        ("production", True, True),
+        ("test", False, False),
+        ("test", True, True),
+    ],
+)
+async def test_cookie_secure_env_matrix(
+    app_env: str,
+    refresh_cookie_secure: bool,
+    expected_secure: bool,
+    db_session_factory: async_sessionmaker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cookie Secure flag đúng theo env: staging/production → True, dev/test → False.
+
+    REFRESH_COOKIE_SECURE=false chỉ override được ở dev/test.
+    """
+    from app.db.session import get_session
+    from app.main import create_app
+    from app.modules.auth.security import hash_password
+
+    # Override settings
+    get_settings.cache_clear()
+    monkeypatch.setenv("APP_ENV", app_env)
+    monkeypatch.setenv("REFRESH_COOKIE_SECURE", str(refresh_cookie_secure).lower())
+    get_settings.cache_clear()
+
+    # Tạo user để login
+    user_id = f"usr_secure_{app_env}"
+    async with db_session_factory() as session:
+        user = User(
+            id=user_id,
+            email=f"secure_{app_env}@example.edu.vn",
+            password_hash=hash_password("Demo@2026"),
+            full_name=f"Secure {app_env} Test",
+            role="staff",
+            is_active=True,
+        )
+        session.add(user)
+        await session.commit()
+
+    app = create_app()
+
+    async def _override():
+        async with db_session_factory() as s:
+            yield s
+            await s.commit()
+
+    app.dependency_overrides[get_session] = _override
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": f"secure_{app_env}@example.edu.vn",
+                "password": "Demo@2026",
+            },
+        )
+    assert response.status_code == 200, response.text
+    set_cookie = response.headers.get("set-cookie", "").lower()
+    if expected_secure:
+        assert "secure" in set_cookie, (
+            f"app_env={app_env} refresh_cookie_secure={refresh_cookie_secure} "
+            f"→ Secure phải có trong Set-Cookie, có: {set_cookie!r}"
+        )
+    else:
+        assert "secure" not in set_cookie, (
+            f"app_env={app_env} refresh_cookie_secure={refresh_cookie_secure} "
+            f"→ Secure phải KHÔNG có trong Set-Cookie, có: {set_cookie!r}"
+        )

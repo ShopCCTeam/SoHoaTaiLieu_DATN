@@ -9,6 +9,7 @@ D13: Logout idempotent.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import uuid
 from datetime import UTC
 from typing import Any
@@ -60,22 +61,30 @@ def _envelope(data: Any) -> dict[str, Any]:
 _TOKEN_TYPE_BEARER = "bearer"  # noqa: S105 — RFC 6750 constant
 
 
-def _build_cookie(
-    settings: Settings,
-    token: str,
-    max_age: int | None = None,
-) -> dict[str, str]:
-    """Build Set-Cookie header value."""
-    attrs = [
-        "HttpOnly",
-        f"Path={settings.refresh_cookie_path}",
-        f"SameSite={REFRESH_COOKIE_SAMESITE}",
-    ]
-    if max_age is not None:
-        attrs.append(f"Max-Age={max_age}")
-    if settings.app_env == "production":
-        attrs.append("Secure")
-    return {"Set-Cookie": f"{settings.refresh_cookie_name}={token}; {'; '.join(attrs)}"}
+def _parse_ip(settings: Settings, request: Request) -> str | None:
+    """Extract + validate client IP for INET column.
+
+    Trả về None nếu:
+    - X-Forwarded-For được đọc nhưng trust_proxy_headers = False.
+    - Giá trị không parse được thành IPv4/IPv6 hợp lệ.
+    """
+    x_forwarded = request.headers.get("x-forwarded-for")
+    if x_forwarded:
+        raw = x_forwarded.split(",")[0].strip()
+        if settings.trust_proxy_headers:
+            try:
+                ipaddress.ip_address(raw)
+                return raw
+            except ValueError:
+                return None
+    raw = request.client.host if request.client else None
+    if raw:
+        try:
+            ipaddress.ip_address(raw)
+            return raw
+        except ValueError:
+            return None
+    return None
 
 
 def _apply_cookie(
@@ -92,7 +101,7 @@ def _apply_cookie(
         max_age=max_age,
         httponly=True,
         samesite=REFRESH_COOKIE_SAMESITE,
-        secure=(settings.app_env == "production"),
+        secure=settings.cookie_secure,
     )
 
 
@@ -102,14 +111,6 @@ def _clear_cookie(response: Response, settings: Settings) -> None:
         key=settings.refresh_cookie_name,
         path=settings.refresh_cookie_path,
     )
-
-
-def _get_client_ip(request: Request) -> str | None:
-    """Extract client IP from request headers (proxy-aware)."""
-    x_forwarded = request.headers.get("x-forwarded-for")
-    if x_forwarded:
-        return x_forwarded.split(",")[0].strip()
-    return request.client.host if request.client else None
 
 
 def _hash_email_for_audit(email: str) -> str:
@@ -130,7 +131,7 @@ def _check_origin_csrf(request: Request, settings: Settings) -> None:
     if origin is None:
         # Same-site request không có Origin (curl, Next.js route handler).
         # Cho qua, không phải lỗi.
-        audit_log("auth.csrf.origin_absent", ip=_get_client_ip(request))
+        audit_log("auth.csrf.origin_absent", ip=_parse_ip(settings, request))
         return
     # Verify origin against allowed CORS origins
     if origin not in settings.cors_origins:
@@ -171,7 +172,7 @@ async def _create_session(
         family_id=family_id,
         token_hash=token_hash,
         user_agent=request.headers.get("user-agent"),
-        ip_address=_get_client_ip(request),
+        ip_address=_parse_ip(settings, request),
         issued_at=datetime.now(UTC),
         expires_at=expires_at,
     )
@@ -181,7 +182,7 @@ async def _create_session(
     audit_log(
         "auth.login.success",
         user_id=user.id,
-        ip=_get_client_ip(request),
+        ip=_parse_ip(settings, request),
         user_agent=request.headers.get("user-agent"),
     )
 
@@ -209,6 +210,7 @@ async def login(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Verify email + password → trả access token + user info + set refresh cookie."""
+    settings = get_settings()
     result, user = await authenticate(
         session=session,
         email=body.email,
@@ -220,7 +222,7 @@ async def login(
             "auth.login.failed",
             email_hash=_hash_email_for_audit(body.email),
             reason="invalid_credentials",
-            ip=_get_client_ip(request),
+            ip=_parse_ip(settings, request),
         )
         raise unauthorized(
             detail="Email hoặc mật khẩu không chính xác.",
@@ -231,7 +233,7 @@ async def login(
             "auth.login.failed",
             email_hash=_hash_email_for_audit(body.email),
             reason="user_inactive",
-            ip=_get_client_ip(request),
+            ip=_parse_ip(settings, request),
         )
         raise unauthorized(
             detail="Email hoặc mật khẩu không chính xác.",
@@ -242,18 +244,18 @@ async def login(
     assert user is not None, "authenticate returned OK but user is None"
     access_token = create_access_token(subject=user.id, role=user.role)
     refresh_token, max_age = await _create_session(
-        session, user, request, get_settings()
+        session, user, request, settings
     )
     await session.commit()
 
     user_public = UserPublic.model_validate(user)
-    _apply_cookie(response, get_settings(), refresh_token, max_age)
+    _apply_cookie(response, settings, refresh_token, max_age)
 
     return _envelope(
         LoginResponse(
             access_token=access_token,
             token_type=_TOKEN_TYPE_BEARER,
-            expires_in=get_settings().jwt_access_token_ttl_seconds,
+            expires_in=settings.jwt_access_token_ttl_seconds,
             user=user_public,
         ).model_dump()
     )
@@ -261,6 +263,7 @@ async def login(
 
 @router.post(
     "/refresh",
+    response_model=None,
     status_code=status.HTTP_200_OK,
     summary="Cấp access token mới (rotation)",
     responses={
@@ -287,7 +290,7 @@ async def refresh(
             code="AUTH_REFRESH_INVALID",
         )
 
-    ip = _get_client_ip(request)
+    ip = _parse_ip(settings, request)
     ua = request.headers.get("user-agent")
 
     result = await rotate_refresh(
@@ -377,7 +380,7 @@ async def logout(
     _check_origin_csrf(request, settings)
 
     token = _get_refresh_token(request, settings)
-    ip = _get_client_ip(request)
+    ip = _parse_ip(settings, request)
 
     if token:
         await revoke_refresh_token(session, token)
