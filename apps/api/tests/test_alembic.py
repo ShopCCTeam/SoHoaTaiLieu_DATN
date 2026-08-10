@@ -4,7 +4,7 @@ Apply/rollback tests cần Postgres trong CI (integration).
 Unit: chỉ verify revision chain tồn tại.
 
 Local: pytest SKIP các test cần Postgres.
-CI: chạy với postgres service.
+CI: chạy với postgres service — pytest.fail nếu không có.
 """
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ def script_dir() -> ScriptDirectory:
     """Alembic script directory — đọc trực tiếp từ filesystem."""
     here = Path(__file__).parent
     alembic_path = here.parent / "alembic"
-    # ScriptDirectory nhận path trực tiếp
     return ScriptDirectory(alembic_path)
 
 
@@ -58,7 +57,12 @@ def test_alembic_base_is_none(script_dir: ScriptDirectory) -> None:
 def test_alembic_upgrade_downgrade_on_postgres() -> None:
     """Apply + rollback trên Postgres thật. Cần postgres service trong CI.
 
-    Skip khi không connect được (dev máy không có Docker stack).
+    Trong CI: probe fail → pytest.fail (Postgres phải chạy).
+    Ngoài CI: skip (expected).
+
+    URL là `postgresql+asyncpg://` — alembic/env.py dùng create_async_engine
+    bắt buộc driver async. `postgresql://` (psycopg2) sẽ raise
+    InvalidRequestError ở CI khi có PG thật.
     """
     import socket
 
@@ -67,17 +71,26 @@ def test_alembic_upgrade_downgrade_on_postgres() -> None:
 
     host = os.environ.get("POSTGRES_HOST", "localhost")
     port = os.environ.get("POSTGRES_PORT", "5432")
-    db = os.environ.get("POSTGRES_DB", "ctsv_test")
+    db = os.environ.get("POSTGRES_TEST_DB", os.environ.get("POSTGRES_DB", "ctsv_test"))
     user = os.environ.get("POSTGRES_USER", "ctsv_test")
     password = os.environ.get("POSTGRES_PASSWORD", "ctsv_test")
-    url = f"postgresql://{user}:{password}@{host}:{port}/{db}"
+    url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db}"
 
-    # Probe TCP trước — skip nhanh nếu Postgres không có
+    _IN_CI = os.environ.get("CI", "").lower() in {"1", "true", "yes"}
+
+    def _skip_or_fail(msg: str) -> None:
+        if _IN_CI:
+            pytest.fail(f"CI phải có Postgres: {msg}")
+        pytest.skip(msg)
+
+    # Probe TCP trước — skip/fail nhanh nếu Postgres không có.
     try:
         with socket.create_connection((host, int(port)), timeout=1):
             pass
     except (ConnectionRefusedError, socket.gaierror, TimeoutError, OSError) as exc:
-        pytest.skip(f"Postgres không khả dụng tại {host}:{port}: {exc!r}")
+        # OSError đã cover ConnectionRefusedError + gaierror — dư tuple hiện tại
+        # nhưng giữ để tương thích nếu sau này thêm test mới.
+        _skip_or_fail(f"Postgres không khả dụng tại {host}:{port}: {exc!r}")
 
     # Alembic folder ở `apps/api/alembic/` (không phải `tests/alembic/`).
     here = Path(__file__).parent

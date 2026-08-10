@@ -1,12 +1,17 @@
-"""Unit tests cho ORM models.
+"""Unit tests cho ORM models — chạy trên SQLite (in-memory).
 
-Model tests chạy trên SQLite (in-memory qua `db_engine`) nhờ TypeDecorator
-`_UUID` + `_INet` trong `app/models/refresh_session.py` — wrap PG-specific
-types thành String/CHAR để SQLite chấp nhận. Không cần Postgres ở local.
+TypeDecorator `_UUID` + `_INet` wrap PG-specific types thành String/CHAR để
+SQLite chấp nhận → local dev không cần Postgres stack.
 
-Local: chạy thẳng, không skip.
-CI: chạy giống local (SQLite in-memory) cho test_models; PG chỉ cần cho
-    test_alembic_upgrade_downgrade_on_postgres (đã được mark integration).
+Chú ý về INET:
+- Test `test_refresh_session_ip_address_roundtrip` dưới đây chỉ verify round-trip
+  qua String(45) trên SQLite — KHÔNG phải bằng chứng về INET trên PG.
+- Test PG roundtrip thật (UUID + INET) nằm ở `tests/test_models_pg.py`, mark
+  `@pytest.mark.integration`, dùng `pg_engine` fixture (fail trong CI nếu
+  Postgres không chạy, skip ngoài CI).
+
+CI: chạy local (SQLite) cho test_models; PG roundtrip ở test_models_pg —
+fail nếu Postgres không có.
 """
 from __future__ import annotations
 
@@ -74,12 +79,13 @@ async def test_refresh_session_has_required_columns(
         assert loaded.ip_address is None  # INet null
 
 
-async def test_refresh_session_ip_address_inet(
+async def test_refresh_session_ip_address_roundtrip(
     db_engine: AsyncEngine,
 ) -> None:
-    """Verify cột IP address lưu + load đúng (INet trên PG, String trên SQLite).
+    """Verify cột IP address round-trip qua SQLite (String(45)).
 
-    Chạy trên SQLite qua `db_engine` (TypeDecorator _INet).
+    CHÚ Ý: Đây chỉ chứng minh `_INet` TypeDecorator hoạt động trên SQLite.
+    Hành vi INET trên PostgreSQL được verify ở `tests/test_models_pg.py`.
     """
     from app.models.refresh_session import RefreshSession
     from app.modules.auth.security import hash_password

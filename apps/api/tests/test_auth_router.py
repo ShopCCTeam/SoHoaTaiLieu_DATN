@@ -14,7 +14,6 @@ import asyncio
 from datetime import UTC
 
 import pytest
-import structlog.testing
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -22,6 +21,21 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.db.session import get_session
 from app.models.refresh_session import RefreshSession
 from app.models.user import User
+
+
+def _extract_rt_cookie(cookie_header: str) -> str | None:
+    """Extract `rt=<token>` từ Set-Cookie header string.
+
+    `httpx.Response.headers.get("set-cookie", "")` trả về string cookie đầu
+    tiên — nhưng để chắc chắn (test mock có thể trả về nhiều cookie), scan
+    mọi `;`-separated part.
+    """
+    if not cookie_header:
+        return None
+    for part in cookie_header.split(";"):
+        if "rt=" in part.lower():
+            return part.split("rt=", 1)[1].strip()
+    return None
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -205,11 +219,7 @@ async def test_refresh_returns_new_access_token(
 
     # Extract cookie
     cookie_header = login.headers.get("set-cookie", "")
-    rt_cookie = None
-    for part in cookie_header.split(";"):
-        if "rt=" in part.lower():
-            rt_cookie = part.split("rt=", 1)[1].strip().split(";")[0].split(";")[0]
-            break
+    rt_cookie = _extract_rt_cookie(cookie_header)
 
     assert rt_cookie is not None, f"No rt cookie in: {cookie_header}"
 
@@ -268,13 +278,8 @@ async def test_refresh_rotation_revokes_old_token(
         "/api/v1/auth/login",
         json={"email": "admin@example.edu.vn", "password": "Demo@2026"},
     )
-    cookie_header = login.headers.get("set-cookie", "")
-    rt_token = None
-    for part in cookie_header.split(";"):
-        if "rt=" in part.lower():
-            rt_token = part.split("rt=", 1)[1].strip().split(";")[0]
-            break
-    assert rt_token is not None
+    rt_token = _extract_rt_cookie(login.headers.get("set-cookie", ""))
+    assert rt_token is not None, f"No rt cookie in headers: {login.headers.get('set-cookie', '')}"
 
     # Refresh lần 1 → nhận token mới
     r1 = await api_client.post(
@@ -351,11 +356,8 @@ async def test_refresh_missing_origin_returns_200(
         json={"email": "admin@example.edu.vn", "password": "Demo@2026"},
     )
     cookie_header = login.headers.get("set-cookie", "")
-    rt_token = None
-    for part in cookie_header.split(";"):
-        if "rt=" in part.lower():
-            rt_token = part.split("rt=", 1)[1].strip().split(";")[0]
-            break
+    rt_token = _extract_rt_cookie(cookie_header)
+    assert rt_token is not None
 
     # Refresh WITHOUT Origin header → 200 (same-site, no CSRF risk)
     response = await api_client.post(
@@ -380,11 +382,8 @@ async def test_refresh_unexpected_origin_returns_403(
         json={"email": "admin@example.edu.vn", "password": "Demo@2026"},
     )
     cookie_header = login.headers.get("set-cookie", "")
-    rt_token = None
-    for part in cookie_header.split(";"):
-        if "rt=" in part.lower():
-            rt_token = part.split("rt=", 1)[1].strip().split(";")[0]
-            break
+    rt_token = _extract_rt_cookie(cookie_header)
+    assert rt_token is not None
 
     # Refresh với Origin không trong CORS list → 403
     response = await api_client.post(
@@ -406,50 +405,104 @@ async def test_refresh_unexpected_origin_returns_403(
 async def test_audit_log_does_not_leak_refresh_token(
     api_client: AsyncClient,
     seeded_user: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """P0: refresh token plaintext KHÔNG được xuất hiện trong audit log.
 
     Trước P0 fix: router hack `family_id=str(rotation.refresh_token[:16])`
     → log chứa 16 ký tự đầu của refresh token (LEAK SECRET).
 
-    Test này capture structlog output xuyên suốt /auth/refresh, assert không
-    substring nào của refresh token xuất hiện trong bất kỳ event nào.
+    Bảo vệ 4 lớp (đã bị bypass 2 lần trước đây):
+    1. Negative control: assert captured có ≥1 entry.
+       `structlog.testing.capture_logs()` KHÔNG hoạt động khi app đã
+       `structlog.configure(..., JSONRenderer(), cache_logger_on_first_use=True)`
+       (production setup) — test cũ capture rỗng → assertions KHÔNG chạy → xanh
+       giả. Phải monkeypatch `_audit._logger.info` (BoundLogger thật) để
+       intercept call.
+    2. Parse token MỚI từ response.headers["set-cookie"] → assert
+       new_token != rt_token (rotation thật sự xảy ra).
+    3. Forbidden list: rt_token, new_token, prefix [:16]/[:8]/[8:24] của CẢ HAI,
+       hash_token() của CẢ HAI. Hai token là hai secrets độc lập — bug cũ leak
+       `rotation.refresh_token[:16]` = new_token, không liên quan rt_token.
+    4. Join toàn bộ captured thành 1 string → assert từng giá trị forbidden
+       KHÔNG xuất hiện. Tránh false negative khi token bị split across nhiều
+       event/field.
     """
+    from app.modules.auth import audit as audit_module
+    from app.modules.auth.security import hash_token
+
+    # Intercept BoundLogger thật của `_audit` — structlog.testing.capture_logs()
+    # không hoạt động sau configure(JSONRenderer, cache_logger_on_first_use=True).
+    captured: list[tuple[str, dict[str, object]]] = []
+
+    def _capture(event: str, *args: object, **kw: object) -> object:
+        captured.append((event, dict(kw)))
+        return None
+
+    monkeypatch.setattr(audit_module._audit, "info", _capture)
+
     # Login first
     login = await api_client.post(
         "/api/v1/auth/login",
         json={"email": "admin@example.edu.vn", "password": "Demo@2026"},
     )
-    cookie_header = login.headers.get("set-cookie", "")
-    rt_token = None
-    for part in cookie_header.split(";"):
-        if "rt=" in part.lower():
-            rt_token = part.split("rt=", 1)[1].strip().split(";")[0]
-            break
-    assert rt_token is not None
-    # Substring đủ dài để bắt được leak [:16] nhưng tránh false positive.
-    leaked_substrings = [rt_token[:16], rt_token[:8], rt_token[8:24]]
-    assert len(rt_token) >= 24
+    rt_token = _extract_rt_cookie(login.headers.get("set-cookie", ""))
+    assert rt_token is not None, f"No rt cookie in headers: {login.headers.get('set-cookie', '')}"
+    assert len(rt_token) >= 24, f"rt_token ngắn bất thường: {rt_token!r}"
 
-    # Capture structlog trong khi /auth/refresh chạy
-    with structlog.testing.capture_logs() as captured:
-        response = await api_client.post(
-            "/api/v1/auth/refresh",
-            headers={
-                "Origin": "http://localhost:3000",
-                "Cookie": f"rt={rt_token}",
-            },
+    # Refresh — audit_log._audit.info bị intercept
+    response = await api_client.post(
+        "/api/v1/auth/refresh",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Cookie": f"rt={rt_token}",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    # (1) Negative control — captured phải có event rotated.
+    # Nếu `captured == []` → monkeypatch không chạm đúng logger → assertion
+    # dưới trở thành xanh giả (đây là vấn đề của test cũ với capture_logs).
+    events = [e[0] for e in captured]
+    assert "auth.refresh.rotated" in events, (
+        f"audit_log._audit.info không bị intercept — capture bị broken. "
+        f"captured events: {events}"
+    )
+
+    # (2) Parse token MỚI từ Set-Cookie response — rotation thật sự xảy ra.
+    new_token = _extract_rt_cookie(response.headers.get("set-cookie", ""))
+    assert new_token is not None, (
+        f"refresh response thiếu rt cookie: {response.headers.get('set-cookie', '')!r}"
+    )
+    assert new_token != rt_token, (
+        "Rotation không xảy ra — test không có ý nghĩa (test cũ leak secret "
+        "chỉ chạy khi rotation xảy ra)."
+    )
+
+    # (3) Forbidden list — cả token cũ + token mới + các prefix/substring + hash.
+    # Bug cũ leak `rotation.refresh_token[:16]` = 16 ký tự đầu của new_token,
+    # không liên quan rt_token → phải kiểm cả hai.
+    forbidden = {
+        "rt_token": rt_token,
+        "new_token": new_token,
+        "rt_token[:16]": rt_token[:16],
+        "rt_token[:8]": rt_token[:8],
+        "rt_token[8:24]": rt_token[8:24],
+        "new_token[:16]": new_token[:16],
+        "new_token[:8]": new_token[:8],
+        "new_token[8:24]": new_token[8:24],
+        "rt_token_hash": hash_token(rt_token),
+        "new_token_hash": hash_token(new_token),
+    }
+    forbidden = {k: v for k, v in forbidden.items() if v}
+
+    # (4) Join toàn bộ captured thành 1 string — bắt mọi leak dù split field nào.
+    captured_str = str(captured)
+    for label, value in forbidden.items():
+        assert value not in captured_str, (
+            f"Audit log leak [{label}]={value!r} xuất hiện trong captured logs. "
+            f"Đây là secret leak — refresh token (hoặc hash/prefix) bị ghi vào log."
         )
-    assert response.status_code == 200
-
-    # Assert không có substring nào của refresh token trong captured events
-    for event in captured:
-        event_str = str(event)
-        for sub in leaked_substrings:
-            assert sub not in event_str, (
-                f"Audit log leak: refresh_token substring {sub!r} "
-                f"xuất hiện trong event: {event}"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -468,11 +521,8 @@ async def test_logout_revokes_token_and_clears_cookie(
         json={"email": "admin@example.edu.vn", "password": "Demo@2026"},
     )
     cookie_header = login.headers.get("set-cookie", "")
-    rt_token = None
-    for part in cookie_header.split(";"):
-        if "rt=" in part.lower():
-            rt_token = part.split("rt=", 1)[1].strip().split(";")[0]
-            break
+    rt_token = _extract_rt_cookie(cookie_header)
+    assert rt_token is not None
 
     # Logout
     response = await api_client.post(
@@ -559,11 +609,8 @@ async def test_refresh_inactive_user_returns_401_no_session_created(
     )
     assert login.status_code == 200, login.text
     cookie_header = login.headers.get("set-cookie", "")
-    rt_token = None
-    for part in cookie_header.split(";"):
-        if "rt=" in part.lower():
-            rt_token = part.split("rt=", 1)[1].strip().split(";")[0]
-            break
+    rt_token = _extract_rt_cookie(cookie_header)
+    assert rt_token is not None
     assert rt_token is not None
 
     # Set user inactive SAU khi login
@@ -727,3 +774,79 @@ async def test_login_creates_refresh_session_in_db(
         assert sessions[0].user_id == "usr_login_session"
         assert sessions[0].revoked_at is None
         assert len(sessions[0].token_hash) == 64  # SHA-256 hex
+
+
+# ---------------------------------------------------------------------------
+# revoke_all_user_sessions — Phase 5 P0 coverage
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_revoke_all_user_sessions_returns_count(
+    db_session_factory: async_sessionmaker,
+) -> None:
+    """Service `revoke_all_user_sessions` trả về rowcount đúng.
+
+    Phase 5 audit: hàm này trước đó có 0 test, coverage 81% ăn 1 dòng
+    trivial. Cover edge cases: 0 session, N active sessions.
+    """
+    from app.modules.auth.refresh_service import revoke_all_user_sessions
+
+    # Case 1: user không có session → return 0
+    async with db_session_factory() as session:
+        count = await revoke_all_user_sessions(
+            session, "usr_no_sessions", reason="password_change"
+        )
+        await session.commit()
+    assert count == 0
+
+    # Case 2: tạo 3 session ACTIVE cho user → revoke_all → return 3
+    import uuid as uuid_module
+    from datetime import UTC, datetime, timedelta
+
+    from app.modules.auth.security import hash_token
+
+    user_id = "usr_revoke_all"
+    async with db_session_factory() as session:
+        u = User(
+            id=user_id,
+            email="revoke_all@example.edu.vn",
+            password_hash=hash_token("ignored"),  # dummy
+            full_name="Revoke All",
+            role="staff",
+            is_active=True,
+        )
+        # Override hash_password to avoid bcrypt cost in test
+        from app.modules.auth.security import hash_password
+
+        u.password_hash = hash_password("Demo@2026")
+        session.add(u)
+        await session.commit()
+
+    now = datetime.now(UTC)
+    async with db_session_factory() as session:
+        for i in range(3):
+            rs = RefreshSession(
+                id=uuid_module.uuid4(),
+                user_id=user_id,
+                family_id=uuid_module.uuid4(),
+                token_hash=f"{i:x}" * 64,  # unique hash per session
+                issued_at=now,
+                expires_at=now + timedelta(seconds=3600),
+            )
+            session.add(rs)
+        await session.commit()
+
+    async with db_session_factory() as session:
+        count = await revoke_all_user_sessions(
+            session, user_id, reason="password_change"
+        )
+        await session.commit()
+    assert count == 3, f"expected 3 revoked, got {count}"
+
+    # Gọi lần 2 → tất cả đã revoked → return 0
+    async with db_session_factory() as session:
+        count_2 = await revoke_all_user_sessions(
+            session, user_id, reason="password_change"
+        )
+        await session.commit()
+    assert count_2 == 0, f"lần 2 phải return 0, got {count_2}"

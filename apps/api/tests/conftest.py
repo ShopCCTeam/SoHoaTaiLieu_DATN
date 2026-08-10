@@ -5,6 +5,7 @@ import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import asyncpg  # noqa: F401 — InvalidCatalogNameError for skip_or_fail
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
@@ -23,6 +24,18 @@ from app.models.user import User
 # ---------------------------------------------------------------------------
 # Env setup
 # ---------------------------------------------------------------------------
+
+# CI phải có Postgres — nếu probe fail thì FAIL, không skip. Local dev
+# không có Docker thì skip — expected.
+_IN_CI = os.environ.get("CI", "").lower() in {"1", "true", "yes"}
+
+
+def _skip_or_fail(msg: str) -> None:
+    """Trong CI: fail (Postgres phải chạy). Ngoài CI: skip (expected)."""
+    if _IN_CI:
+        pytest.fail(f"CI phải có Postgres: {msg}")
+    pytest.skip(msg)
+
 
 @pytest.fixture(autouse=True)
 def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -57,29 +70,24 @@ async def db_engine(tmp_path: Path):
 async def pg_engine():
     """Postgres async engine cho integration tests.
 
-    Skip khi không connect được (dev máy không có Docker stack).
-    CI chạy với postgres service — fixture connect thành công.
-
-    Yields:
-        AsyncEngine đã init schema xong.
+    Trong CI: probe fail → pytest.fail (Postgres phải chạy).
+    Ngoài CI (dev không có Docker stack): skip.
 
     Raises:
-        pytest.skip() — khi connect thất bại (ConnectionRefusedError, v.v.).
+        pytest.fail() — khi CI không có Postgres.
+        pytest.skip() — khi local không có Postgres.
     """
-    import socket
-
     engine = get_postgres_test_engine()
     try:
         async with engine.connect() as conn:
             await conn.run_sync(lambda c: None)
-    except (ConnectionRefusedError, socket.gaierror, OSError) as exc:
+    except (OSError, asyncpg.InvalidCatalogNameError) as exc:
+        # OSError bao trùm ConnectionRefusedError + socket.gaierror + TimeoutError.
+        # asyncpg.InvalidCatalogNameError — sai tên DB (asyncpg không phải OSError subclass).
         await engine.dispose()
-        pytest.skip(f"Postgres không khả dụng: {exc!r}")
-    except Exception as exc:
-        # asyncpg có thể raise ConnectionDoesNotExistError/InvalidPasswordError...
-        # Bắt mọi lỗi kết nối để skip an toàn.
-        await engine.dispose()
-        pytest.skip(f"Postgres connect failed: {type(exc).__name__}: {exc}")
+        _skip_or_fail(
+            f"Postgres không khả dụng: {type(exc).__name__}: {exc}"
+        )
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
