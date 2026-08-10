@@ -98,6 +98,13 @@
 - ✅ OpenAPI runtime schema sync với contract: `/api/v1/auth/login`, `/api/v1/auth/me`.
 - ✅ Docker compose file cho local dev (cần Docker để chạy — Windows hiện không có Docker, dùng SQLite test cho CI/local verify).
 
+**Verify gate (Phase 1 — STATE AT 2026-08-09 21:30)**:
+- ✅ Static verified — ruff + mypy strict clean
+- ✅ Unit verified — 49/49 tests pass (SQLite in-memory via aiosqlite)
+- ⚠️ **Postgres verified** — CHƯA chạy alembic upgrade trên PG thật; chỉ test SQLite
+- ⚠️ **Docker verified** — CHƯA start docker stack; máy local chưa cài Docker Desktop
+- ⚠️ **CI verified** — CHƯA có postgres service trong api job; chỉ chạy pytest SQLite
+
 **Đã hỏi user và chốt**:
 - Scope: Auth + DB migration (chưa `/documents` GET ở commit này).
 - DB engine: Postgres 16 local.
@@ -107,14 +114,49 @@
 - ⚠️ Python 3.12 (env hiện tại) chưa có `uuid.uuid7()` → dùng `uuid.uuid4()` (note trong middleware).
 - ⚠️ Docker chưa có trên máy local → verify qua SQLite test (aiosqlite) + OpenAPI runtime schema.
 - ⚠️ JWT secret dev length: đã bump lên ≥ 32 bytes (PyJWT warning).
+- ⚠️ **Refresh rotation / logout / reuse detection CHƯA có** → Phase 1.1.
+- ⚠️ **`config.py` chưa fail-closed ở production** → Phase 1.1.
+- ⚠️ **`/health/ready` chưa check Postgres thật** → Phase 1.1.
+- ⚠️ **Auth contract mới chỉ có `/auth/login` + `/auth/me`** → Phase 1.1 thêm `/auth/refresh` + `/auth/logout`.
 
-**Commit kế tiếp**: `phase-2-documents-rbac` (`/documents` GET + RBAC scope filter + refresh token rotation).
+**Commit kế tiếp** (đã chốt lại sau review 2026-08-09 22:00):
+- ❌ ~~Phase 2 /documents~~ — dời.
+- ✅ **Phase 1.1 — Auth Completion**: refresh sessions, rotation, logout, cookie tests, argon2id, fail-closed config, health/ready real check.
+- ✅ **Phase 1.2 — Runtime Verification**: docker stack lên, alembic upgrade/downgrade/upgrade trên PG thật, oasdiff CI, coverage ≥ 80%.
+- Sau đó mới sang Phase 2 (Documents GET + RBAC scope).
 
-**Chi tiết**: `docs/plans/2026-08-09-phase-1-be-auth-db.md`.
+**Chi tiết**:
+- Plan Phase 1.1: `docs/plans/2026-08-09-phase-1.1-auth-completion.md`.
+- ADR-0003 (chốt stack + schema + contract): `docs/adr/0003-auth-hardening.md`.
+- ADR-0002 (async SQLAlchemy): `docs/adr/0002-async-sqlalchemy-pattern.md`.
 
 ---
 
-## 2026-08-09 — Khởi tạo Workspace Rules & Skills
+## 2026-08-09 — Phase 1.5: Dev Environment Setup
+
+**Việc đã làm**:
+- `docs/setup/dev-environment.md`: hướng dẫn cài WSL2 + Docker Desktop + oasdiff trên Windows 10 (9 section, kèm troubleshooting).
+- `docs/plans/2026-08-09-phase-1.5-dev-env.md`: plan chi tiết 4 task (docs + scripts + Makefile + PROGRESS).
+- KHÔNG sửa code, schema, CI, docker-compose, Makefile (chờ user confirm trước khi apply scripts và Makefile target).
+
+**Trạng thái**:
+- ✅ Docs setup + plan đã sẵn sàng.
+- ⏸ Dev cần chạy `bash scripts/verify-env.sh` (sẽ tạo ở commit kế) sau khi cài Docker + oasdiff.
+- ⏸ Khi verify pass → `make up` → `make seed` → `curl http://localhost:8000/health/live`.
+
+**Commit kế tiếp**:
+- `chore: thêm verify-env script (Bash + PowerShell)` — tạo `scripts/verify-env.sh` + `scripts/verify-env.ps1`.
+- `chore: make env-check target` — thêm target `make env-check` wrapper.
+- `docs: progress phase 1.5 dev env setup` — append entry này vào git history (hiện tại chưa commit).
+
+**Risk + đã mitigate**:
+- ⚠️ Docker Desktop chưa cài trên máy local → docs hướng dẫn từng bước, có verify ngay sau mỗi bước.
+- ⚠️ PowerShell execution policy có thể block script → hướng dẫn dùng `-ExecutionPolicy Bypass -File`.
+- ⛔ Agent KHÔNG tự `docker compose up` (rule 08 §1 — lệnh tạo container + pull image ~500MB, cần user confirm).
+
+**Chi tiết**: `docs/plans/2026-08-09-phase-1.5-dev-env.md`.
+
+---
 
 ## 2026-08-09 — Khởi tạo Workspace Rules & Skills
 
