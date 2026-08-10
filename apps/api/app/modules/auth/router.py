@@ -70,18 +70,18 @@ def _parse_ip(settings: Settings, request: Request) -> str | None:
     """
     x_forwarded = request.headers.get("x-forwarded-for")
     if x_forwarded:
-        raw = x_forwarded.split(",")[0].strip()
+        raw_forwarded = x_forwarded.split(",")[0].strip()
         if settings.trust_proxy_headers:
             try:
-                ipaddress.ip_address(raw)
-                return raw
+                ipaddress.ip_address(raw_forwarded)
+                return raw_forwarded
             except ValueError:
                 return None
-    raw = request.client.host if request.client else None
-    if raw:
+    if request.client and request.client.host:
+        client_host = request.client.host
         try:
-            ipaddress.ip_address(raw)
-            return raw
+            ipaddress.ip_address(client_host)
+            return client_host
         except ValueError:
             return None
     return None

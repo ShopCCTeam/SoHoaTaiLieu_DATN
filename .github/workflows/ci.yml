@@ -23,10 +23,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "20"
 
       - name: Install Redocly CLI
-        run: npm install -g @redocly/cli
+        run: npm install -g @redocly/cli@1.15.0
 
       - name: Lint docs/api/openapi.yaml (RFC 7807 + OpenAPI 3.1)
         run: redocly lint docs/api/openapi.yaml
@@ -46,12 +46,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9.12.0
+          version: "9.12.0"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "20"
           cache: pnpm
 
       - name: Install dependencies
@@ -82,7 +82,7 @@ jobs:
         working-directory: apps/api
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: ctsv_test
           POSTGRES_USER: ctsv_test
@@ -93,7 +93,8 @@ jobs:
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -107,11 +108,11 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           cache: pip
 
       - name: Install uv
-        run: pip install uv
+        run: pip install uv==0.4.18
 
       - name: Install dependencies
         run: uv sync --frozen --extra dev
@@ -130,15 +131,18 @@ jobs:
           uv run alembic downgrade -1
           uv run alembic upgrade head
 
-      - name: Run tests with coverage
+      # ---------- Coverage: global 80% ----------
+      - name: Run tests with coverage (global ≥80%)
         run: |
           uv run pytest \
             --cov=app \
             --cov-report=term-missing \
             --cov-report=xml \
             --cov-fail-under=80 \
-            -m "not integration"
+            -v \
+            --tb=short
         env:
+          CI: "true"
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: ctsv_test
@@ -146,48 +150,62 @@ jobs:
           POSTGRES_PASSWORD: ctsv_test
           POSTGRES_TEST_DB: ctsv_test
 
+      # ---------- Coverage: scoped auth ≥85% ----------
+      - name: Run tests with coverage (auth ≥85%)
+        run: |
+          uv run pytest \
+            --cov=app.modules.auth \
+            --cov-report=term-missing:app/modules/auth \
+            --cov-report=xml:coverage-auth.xml \
+            --cov-fail-under=85 \
+            -v \
+            --tb=short
+        env:
+          CI: "true"
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: ctsv_test
+          POSTGRES_USER: ctsv_test
+          POSTGRES_PASSWORD: ctsv_test
+          POSTGRES_TEST_DB: ctsv_test
+
+      - name: Check skipped integration tests
+        run: |
+          SKIPPED=$(uv run pytest --co -q 2>/dev/null | grep -c "\[integration\]" || echo "0")
+          if [ "$SKIPPED" -gt 0 ]; then
+            echo "::error::Có $SKIPPED test integration bị skip — kiểm tra pg_engine fixture"
+            exit 1
+          fi
+          echo "OK: 0 integration test bị skip"
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         if: always()
         with:
-          files: apps/api/coverage.xml
+          files: apps/api/coverage.xml,apps/api/coverage-auth.xml
           fail_ci_if_error: false
 
       - name: OpenAPI oasdiff (contract vs runtime)
         run: |
-          # Generate runtime OpenAPI from FastAPI
+          # WORKDIR = apps/api — OpenAPI contract ở repo root (../docs/api/openapi.yaml).
+          # Mount repo root để oasdiff container truy cập cả contract lẫn runtime spec.
+          REPO_ROOT="$GITHUB_WORKSPACE"
+
+          # Generate runtime OpenAPI từ FastAPI
           uv run python -c "
 import json, sys
 sys.path.insert(0, '.')
 from app.main import app
-print(json.dumps(app.openapi(), indent=2))
+sys.stdout.write(json.dumps(app.openapi(), indent=2))
 " > /tmp/runtime_openapi.json
 
-          # Bundle contract YAML to JSON
-          cd ../..
+          # Bundle contract YAML → JSON rồi diff
           docker run --rm \
-            -v "$PWD:/spec" \
-            shiftm/oasdiff:v1.10.2 \
-            bundle /spec/docs/api/openapi.yaml -o /tmp/contract.json 2>/dev/null || \
-          docker run --rm \
-            -v "$PWD:/spec" \
-            ghcr.io/tufin/oasdiff:v1.10.2 \
-            bundle /spec/docs/api/openapi.yaml -o /tmp/contract.json || \
-          echo "oasdiff bundle skipped (Docker not available)"
-
-          # Compare (ignore metadata differences)
-          docker run --rm \
-            -v "$PWD:/spec" \
-            shiftm/oasdiff:v1.10.2 \
-            diff /tmp/contract.json /tmp/runtime_openapi.json \
+            -v "$REPO_ROOT:/repo" \
+            ghcr.io/tufin/oasdiff:v1.10.11 \
+            diff \
+            /repo/docs/api/openapi.yaml \
+            /tmp/runtime_openapi.json \
             --format json \
             --fail-on-diff \
-            --exclude-elements info,.openapi,servers,summary,description,externalDocs,security,components/securitySchemes,tags || \
-          docker run --rm \
-            -v "$PWD:/spec" \
-            ghcr.io/tufin/oasdiff:v1.10.2 \
-            diff /tmp/contract.json /tmp/runtime_openapi.json \
-            --format json \
-            --fail-on-diff \
-            --exclude-elements info,.openapi,servers,summary,description,externalDocs,security,components/securitySchemes,tags || \
-          echo "oasdiff diff skipped (Docker not available)"
+            --exclude-elements info,.openapi,servers,summary,description,externalDocs,security,components/securitySchemes,tags

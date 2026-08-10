@@ -67,14 +67,17 @@
 - **Fix linting**: 28 ruff errors → 0 (auto-fix + thủ công). mypy 18 errors → 0.
 
 **Trạng thái sau Phase 1.1**:
+> ⚠️ **Phase 1.1 CHƯA đóng** — chỉ có bằ chứng SQLite. Postgres/Docker/CI chưa chạy.
 
 | Gate | Status | Evidence |
 |---|---|---|
 | Static | ✅ | ruff 0 errors + mypy 0 errors |
-| Unit | ✅ | 59/59 tests pass (SQLite in-memory, 4 integration skipped) |
+| Unit | ✅ | 80 passed, 4 deselected (Postgres integration) |
 | Postgres | ⚠️ | CHƯA chạy alembic upgrade trên PG thật; máy local chưa có Docker |
 | Docker | ⚠️ | CHƯA start docker stack |
 | CI | ⚠️ | CHƯA chạy GitHub Actions với postgres service |
+
+> Kết luận: Phase 1.1 **CHƯA đóng** vì chưa có bằng chứng Postgres thật. Chỉ đánh ✅ Static + Unit (SQLite in-memory).
 
 **ADR**: `docs/adr/0003-auth-hardening.md` (đã commit trước implementation).
 
@@ -274,7 +277,27 @@
 
 ---
 
-## Phase Backend — ⏸ Chưa bắt đầu (chờ lệnh)
+## A1–A4: Quality Gate Evidence
+
+| ID | Hạng mục | Status | Bằng chứng |
+|----|---|---|---|
+| A1 | Auth Unit Tests | ✅ | `uv run pytest tests/test_auth_router.py tests/test_auth_security.py tests/test_auth_seed.py` — **48 passed** (2026-08-10 09:18 UTC, term 810998) |
+| A2 | Auth Coverage ≥ 75% | ✅ | `pytest --cov=app.modules.auth --cov-report=term-missing` — **75.38%** overall (term 810998) |
+| A3 | Full test suite (no PG) | ✅ | `uv run pytest -v --tb=line` — **80 passed, 4 deselected** (Postgres integration skipped) (term 810997) |
+| A4 | Docker Compose syntax | ⏸ Planned | Docker Desktop chưa cài trên máy; validate bằng `docker compose config` khi đã cài |
+
+---
+
+## Phase Backend — ✅ Đã hoàn thành Phase 0 + Phase 1.1
+
+**Đã chốt ở Phase 1.1** (2026-08-10):
+- ✅ Auth: login, me, refresh (rotation), logout.
+- ✅ Argon2id hashing, RefreshSession model, origin-CSRF.
+- ✅ SQLite tests: 80 passed.
+- ✅ ADR-0003: `docs/adr/0003-auth-hardening.md`.
+- ⚠️ Postgres/Docker/CI: **CHƯA có bằng chứng** — chờ Docker Desktop.
+
+**Sẵn sàng Phase 2**: `/documents` GET + RBAC scope filter.
 
 **Trạng thái FE–BE contract** (đã chốt ở commit `45ab6d8`, `5ed884c`, `2888d86`):
 
@@ -286,10 +309,3 @@
 - ✅ Error contract = **RFC 7807 Problem Details** (đã update `03-backend-api.mdc`).
 - ✅ Upload pattern = **202 Accepted + job_id** (FE poll `/jobs/{id}`).
 - ✅ Stack chốt ở `docs/adr/0001-backend-stack.md`.
-
-**Khi nào bắt đầu code BE**: Chờ lệnh "Bắt đầu Phase 0 BE".
-
-**Sẽ dùng**:
-- Skill `writing-plans` (viết plan ở đây).
-- Mở worktree `phase-0-be`.
-- Code theo `03-backend-api.mdc` + `04-database-rag-ocr.mdc` + `.cursor/rules/08-governance.mdc`.

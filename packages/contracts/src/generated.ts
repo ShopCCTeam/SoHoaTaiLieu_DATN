@@ -80,25 +80,48 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description OK — cấp access token mới, rotate refresh cookie */
                 200: {
                     headers: {
-                        /** @description Cookie `rt` mới. */
+                        /**
+                         * @description `rt=<refresh_token>; HttpOnly; Secure; SameSite=Lax;
+                         *     Path=/api/v1/auth; Max-Age=604800` (7 ngày).
+                         */
                         "Set-Cookie"?: string;
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
-                            /** @enum {boolean} */
-                            success: true;
-                            data: {
+                        "application/json": components["schemas"]["SuccessEnvelope"] & {
+                            data?: {
+                                /** @description JWT access token mới (HS256). */
                                 access_token: string;
+                                /**
+                                 * @description TTL access token (giây).
+                                 * @example 900
+                                 */
                                 expires_in: number;
                             };
                         };
                     };
                 };
-                401: components["responses"]["Unauthorized"];
+                /** @description Token invalid / expired / reuse detected */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetail"];
+                    };
+                };
+                /** @description CSRF — Origin không khớp APP_CORS_ORIGINS */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetail"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -126,14 +149,22 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description No Content — server clear cookie `rt` */
+                /** @description No Content — logout thành công hoặc idempotent (token thiếu/không hợp lệ) */
                 204: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content?: never;
                 };
-                401: components["responses"]["Unauthorized"];
+                /** @description CSRF — Origin không khớp APP_CORS_ORIGINS */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetail"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -298,10 +329,10 @@ export interface components {
             /** @description Mô tả chi tiết (tiếng Việt). */
             detail?: string | null;
             /**
-             * @description Mã machine-readable.
+             * @description Mã machine-readable cho auth và domain errors.
              * @enum {string}
              */
-            code: "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "VALIDATION_ERROR" | "INVALID_FILE_TYPE" | "IDEMPOTENCY_KEY_MISMATCH" | "RATE_LIMIT" | "CONFLICT" | "INTERNAL";
+            code: "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "VALIDATION_ERROR" | "INVALID_FILE_TYPE" | "IDEMPOTENCY_KEY_MISMATCH" | "RATE_LIMIT" | "CONFLICT" | "INTERNAL" | "AUTH_INVALID_CREDENTIALS" | "AUTH_USER_INACTIVE" | "AUTH_USER_NOT_FOUND" | "AUTH_USER_DISABLED" | "AUTH_MISSING_TOKEN" | "AUTH_INVALID_TOKEN" | "AUTH_TOKEN_EXPIRED" | "AUTH_REFRESH_INVALID" | "AUTH_REFRESH_EXPIRED" | "AUTH_REFRESH_REUSE_DETECTED" | "AUTH_CSRF_ORIGIN_REJECTED" | "AUTH_CSRF_ORIGIN_ABSENT";
             /** @description UUID v7, khớp với log server. */
             request_id: string;
             /** @description Chi tiết validation (optional). */
@@ -467,6 +498,11 @@ export interface components {
                  *     Gắn vào `Authorization: Bearer <access_token>`.
                  */
                 access_token: string;
+                /**
+                 * @description Luôn là "bearer" — tuân chuẩn RFC 6750.
+                 * @enum {string}
+                 */
+                token_type?: "bearer";
                 /** @description TTL của access token (giây). */
                 expires_in: number;
                 user: components["schemas"]["User"];
