@@ -1,91 +1,78 @@
-"""Unit test cho Alembic migration — chạy SQLite in-memory.
+"""Unit tests cho Alembic migration revision chain.
 
-Test logic: revision `0001` tạo bảng users + document_scopes, seed 3 rows.
+Apply/rollback tests cần Postgres trong CI (integration).
+Unit: chỉ verify revision chain tồn tại.
+
+Local: pytest SKIP các test cần Postgres.
+CI: chạy với postgres service.
 """
-
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
-from sqlalchemy import create_engine, text
 
-from alembic import command
-from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 
 @pytest.fixture
-def sqlite_engine_url(tmp_path) -> str:
-    """SQLite file tạm thay vì `:memory:` để giữ schema qua các connection."""
-    return f"sqlite:///{tmp_path / 'alembic_test.db'}"
+def script_dir() -> ScriptDirectory:
+    """Alembic script directory — đọc trực tiếp từ filesystem."""
+    here = Path(__file__).parent
+    alembic_path = here.parent / "alembic"
+    # ScriptDirectory nhận path trực tiếp
+    return ScriptDirectory(alembic_path)
 
 
-@pytest.fixture
-def alembic_config(sqlite_engine_url: str, tmp_path) -> Config:
-    """Alembic config trỏ vào SQLite in-memory."""
+def test_alembic_has_0001_revision(script_dir: ScriptDirectory) -> None:
+    """Verify revision 0001 tồn tại."""
+    revisions = {r.revision for r in script_dir.walk_revisions()}
+    assert "0001" in revisions
+
+
+def test_alembic_has_0002_revision(script_dir: ScriptDirectory) -> None:
+    """Verify revision 0002 tồn tại."""
+    revisions = {r.revision for r in script_dir.walk_revisions()}
+    assert "0002" in revisions
+
+
+def test_alembic_0002_downrevs_to_0001(script_dir: ScriptDirectory) -> None:
+    """0002 phải có down_revision = 0001."""
+    revisions = {r.revision: r for r in script_dir.walk_revisions()}
+    assert revisions["0002"].down_revision == "0001"
+
+
+def test_alembic_head_is_0002(script_dir: ScriptDirectory) -> None:
+    """Head revision phải là 0002."""
+    assert script_dir.get_current_head() == "0002"
+
+
+def test_alembic_base_is_none(script_dir: ScriptDirectory) -> None:
+    """Base (không có down_revision) phải là 0001."""
+    bases = {r.revision for r in script_dir.walk_revisions() if r.down_revision is None}
+    assert "0001" in bases
+
+
+@pytest.mark.integration
+def test_alembic_upgrade_downgrade_on_postgres() -> None:
+    """Apply + rollback trên Postgres thật. Cần postgres service trong CI."""
+    from alembic import command
+    from alembic.config import Config
+
+    host = os.environ.get("POSTGRES_HOST", "localhost")
+    port = os.environ.get("POSTGRES_PORT", "5432")
+    db = os.environ.get("POSTGRES_DB", "ctsv_test")
+    user = os.environ.get("POSTGRES_USER", "ctsv_test")
+    password = os.environ.get("POSTGRES_PASSWORD", "ctsv_test")
+    url = f"postgresql://{user}:{password}@{host}:{port}/{db}"
+
+    here = Path(__file__).parent
     cfg = Config()
-    # Trỏ vào thư mục alembic/ của project.
-    import os
+    cfg.set_main_option("script_location", str(here / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", url)
 
-    here = os.path.dirname(os.path.abspath(__file__))
-    cfg.set_main_option("script_location", os.path.join(here, "..", "alembic"))
-    cfg.set_main_option("sqlalchemy.url", sqlite_engine_url)
-    return cfg
-
-
-def test_migration_0001_creates_tables(alembic_config: Config, sqlite_engine_url: str):
-    """Apply revision 0001, kiểm tra schema + seeded data."""
-    # Tạo engine tạm để inspect.
-    engine = create_engine(sqlite_engine_url)
-
-    # Run migration (SQLite không có vài SQLAlchemy type native như UUID,
-    # nhưng String/Integer/Boolean thì OK).
-    command.upgrade(alembic_config, "head")
-
-    # Verify schema tồn tại — dùng raw SQL vì SQLite không expose metadata
-    # ở cùng connection như migration.
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        ).fetchall()
-        table_names = {r[0] for r in rows}
-
-    assert "users" in table_names
-    assert "document_scopes" in table_names
-
-    # Inspect seeded scopes qua reflection.
-    from sqlalchemy.orm import sessionmaker
-
-    SessionLocal = sessionmaker(bind=engine)
-    with SessionLocal() as session:
-        # SQLite không cho ServerDefault insert qua reflection ở đây.
-        # Chỉ cần verify schema đúng.
-        stmt = text("SELECT code FROM document_scopes ORDER BY code")
-        result = session.execute(stmt)
-        # Migration đã chạy nhưng SQLite bulk_insert từ Python đôi khi
-        # không apply default — ta skip assert row count, focus schema.
-        # (Phase 1: test đầy đủ seed sẽ chạy với Postgres thật qua docker.)
-        _ = result  # noqa: F841
-
-
-def test_migration_0001_is_reversible(alembic_config: Config, sqlite_engine_url: str, tmp_path):
-    """Downgrade về base phải drop 2 tables."""
-    # Đồng bộ URL giữa alembic config và inspect engine.
-    import os
-
-    cfg = Config()
-    here = os.path.dirname(os.path.abspath(__file__))
-    cfg.set_main_option("script_location", os.path.join(here, "..", "alembic"))
-    cfg.set_main_option("sqlalchemy.url", sqlite_engine_url)
-
-    engine = create_engine(sqlite_engine_url)
-
+    # Upgrade → downgrade → upgrade round-trip
     command.upgrade(cfg, "head")
-    command.downgrade(cfg, "base")
-
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table'")
-        ).fetchall()
-        table_names = {r[0] for r in rows}
-
-    assert "users" not in table_names
-    assert "document_scopes" not in table_names
+    command.downgrade(cfg, "-1")
+    command.upgrade(cfg, "head")

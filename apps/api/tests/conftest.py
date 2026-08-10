@@ -1,22 +1,28 @@
 """Pytest fixtures shared across tests."""
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_session
 from app.models.user import User
 
+# ---------------------------------------------------------------------------
+# Env setup
+# ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
 def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -28,7 +34,11 @@ def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     yield
 
 
-@pytest.fixture
+# ---------------------------------------------------------------------------
+# Engines
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="function")
 async def db_engine(tmp_path: Path):
     """SQLite async engine, tạo schema mới mỗi test."""
     db_path = tmp_path / "test.db"
@@ -39,10 +49,53 @@ async def db_engine(tmp_path: Path):
     await engine.dispose()
 
 
+def get_postgres_test_engine() -> AsyncEngine:
+    """Postgres engine cho integration tests (CI: có postgres service).
+
+    Env vars được set trong CI job:
+      POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
+    """
+    host = os.environ.get("POSTGRES_HOST", "localhost")
+    port = os.environ.get("POSTGRES_PORT", "5432")
+    db = os.environ.get("POSTGRES_TEST_DB", os.environ.get("POSTGRES_DB", "ctsv_test"))
+    user = os.environ.get("POSTGRES_USER", "ctsv_test")
+    password = os.environ.get("POSTGRES_PASSWORD", "ctsv_test")
+    url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db}"
+    engine = create_async_engine(
+        url,
+        poolclass=NullPool,
+        echo=False,
+    )
+    return engine
+
+
+# ---------------------------------------------------------------------------
+# Sessions
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="function")
+async def db_session(db_engine) -> AsyncIterator[AsyncSession]:
+    """Async session dùng SQLite (unit tests).
+
+    Dùng join_transaction_mode='create_savepoint' để mỗi test tự rollback.
+    """
+    factory = async_sessionmaker(
+        bind=db_engine,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+    async with factory() as session:
+        yield session
+
+
 @pytest.fixture
 async def db_session_factory(db_engine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(bind=db_engine, expire_on_commit=False)
 
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
 async def seeded_user(db_session_factory) -> User:
@@ -64,6 +117,10 @@ async def seeded_user(db_session_factory) -> User:
         await session.refresh(user)
         yield user
 
+
+# ---------------------------------------------------------------------------
+# API client
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
 async def api_client(db_session_factory) -> AsyncIterator[AsyncClient]:

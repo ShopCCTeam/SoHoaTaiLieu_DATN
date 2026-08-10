@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from app.models.document_scope import DocumentScope
+from app.models.refresh_session import RefreshSession
 from app.models.user import User
 
-__all__ = ["User", "DocumentScope"]
+__all__ = ["DocumentScope", "RefreshSession", "User"]

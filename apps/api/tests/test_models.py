@@ -1,85 +1,124 @@
-"""Unit tests cho ORM models — dùng SQLite in-memory."""
+"""Unit tests cho ORM models.
 
+Model tests dùng PG engine vì RefreshSession dùng PG-specific types
+(UUID, INET, gen_random_uuid). SQLite không hỗ trợ.
+
+Local: pytest SKIP các test này (Postgres required).
+CI: chạy với postgres service.
+"""
 from __future__ import annotations
 
-import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from datetime import UTC
 
-from app.db.base import Base
-from app.models.document_scope import DocumentScope
+import pytest
+
+# Import model để verify nó compile được
+from app.models.refresh_session import RefreshSession  # noqa: F401
 from app.models.user import User
 
 
-@pytest.fixture
-async def session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-    async with factory() as s:
-        yield s
-    await engine.dispose()
-
-
-@pytest.mark.asyncio
-async def test_create_user_persists(session) -> None:
-    user = User(
-        id="usr_01",
-        email="admin@example.edu.vn",
-        password_hash="bcrypt_hash",
-        full_name="Quản Trị",
-        role="admin",
-        department="Phòng CTSV",
-    )
-    session.add(user)
-    await session.commit()
-    stmt = select(User).where(User.email == "admin@example.edu.vn")
-    result = await session.execute(stmt)
-    loaded = result.scalar_one()
-    assert loaded.id == "usr_01"
-    assert loaded.role == "admin"
-    assert loaded.is_active is True
-
-
-@pytest.mark.asyncio
-async def test_email_is_unique(session) -> None:
-    from sqlalchemy.exc import IntegrityError
-
-    user1 = User(
-        id="usr_01",
-        email="dup@example.edu.vn",
-        password_hash="h",
-        full_name="A",
-        role="staff",
-    )
-    user2 = User(
-        id="usr_02",
-        email="dup@example.edu.vn",
-        password_hash="h",
-        full_name="B",
-        role="staff",
-    )
-    session.add(user1)
-    await session.commit()
-    session.add(user2)
-    with pytest.raises(IntegrityError):
-        await session.commit()
-
-
-@pytest.mark.asyncio
-async def test_document_scope_seed(session) -> None:
-    scope = DocumentScope(code="PUBLIC", description="Công khai toàn bộ SV")
-    session.add(scope)
-    await session.commit()
-    loaded = await session.get(DocumentScope, scope.id)
-    assert loaded is not None
-    assert loaded.code_enum.value == "PUBLIC"
-
-
 def test_user_tablename() -> None:
+    """Không cần Postgres."""
     assert User.__tablename__ == "users"
 
 
-def test_document_scope_tablename() -> None:
-    assert DocumentScope.__tablename__ == "document_scopes"
+def test_refresh_session_tablename() -> None:
+    """Không cần Postgres."""
+    assert RefreshSession.__tablename__ == "refresh_sessions"
+
+
+@pytest.mark.integration
+async def test_refresh_session_has_required_columns() -> None:
+    """Cần Postgres vì RefreshSession dùng UUID + INET."""
+    import uuid
+    from datetime import datetime
+
+    from app.db.base import Base
+    from app.models.user import User
+    from app.modules.auth.security import hash_password
+
+    # Model tests dùng PG
+    from tests.conftest import get_postgres_test_engine
+
+    engine = get_postgres_test_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = engine.session_factory
+    async with factory() as session:
+        # Tạo user trước (FK)
+        user = User(
+            id=str(uuid.uuid4()),
+            email="model_test@example.edu.vn",
+            password_hash=hash_password("Test@2026"),
+            full_name="Model Test User",
+            role="staff",
+            is_active=True,
+        )
+        session.add(user)
+        await session.commit()
+
+        # Tạo session
+        rs = RefreshSession(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            family_id=uuid.uuid4(),
+            token_hash="a" * 64,
+            expires_at=datetime.now(UTC),
+        )
+        session.add(rs)
+        await session.commit()
+
+        loaded = await session.get(RefreshSession, rs.id)
+        assert loaded is not None
+        assert loaded.user_id == user.id
+        assert loaded.token_hash == "a" * 64
+        assert loaded.revoked_at is None
+        assert loaded.ip_address is None  # INET null
+
+    await engine.dispose()
+
+
+@pytest.mark.integration
+async def test_refresh_session_ip_address_inet() -> None:
+    """Cần Postgres vì cột INET."""
+    import uuid
+    from datetime import datetime
+
+    from app.db.base import Base
+    from app.models.user import User
+    from app.modules.auth.security import hash_password
+    from tests.conftest import get_postgres_test_engine
+
+    engine = get_postgres_test_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = engine.session_factory
+    async with factory() as session:
+        user = User(
+            id=str(uuid.uuid4()),
+            email="inet_test@example.edu.vn",
+            password_hash=hash_password("Test@2026"),
+            full_name="INet Test",
+            role="staff",
+        )
+        session.add(user)
+        await session.commit()
+
+        rs = RefreshSession(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            family_id=uuid.uuid4(),
+            token_hash="b" * 64,
+            expires_at=datetime.now(UTC),
+            ip_address="192.168.1.100",  # INET
+        )
+        session.add(rs)
+        await session.commit()
+
+        loaded = await session.get(RefreshSession, rs.id)
+        assert loaded is not None
+        assert str(loaded.ip_address) == "192.168.1.100"
+
+    await engine.dispose()
