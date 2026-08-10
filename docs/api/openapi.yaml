@@ -77,8 +77,25 @@ components:
           description: Mô tả chi tiết (tiếng Việt).
         code:
           type: string
-          enum: [UNAUTHORIZED, FORBIDDEN, NOT_FOUND, VALIDATION_ERROR, INVALID_FILE_TYPE, IDEMPOTENCY_KEY_MISMATCH, RATE_LIMIT, CONFLICT, INTERNAL]
-          description: Mã machine-readable.
+          enum:
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - NOT_FOUND
+            - VALIDATION_ERROR
+            - INVALID_FILE_TYPE
+            - IDEMPOTENCY_KEY_MISMATCH
+            - RATE_LIMIT
+            - CONFLICT
+            - INTERNAL
+            # Auth errors (Phase 1.1)
+            - AUTH_INVALID_CREDENTIALS
+            - AUTH_USER_INACTIVE
+            - AUTH_REFRESH_INVALID
+            - AUTH_REFRESH_EXPIRED
+            - AUTH_REFRESH_REUSE_DETECTED
+            - AUTH_CSRF_ORIGIN_REJECTED
+            - AUTH_CSRF_ORIGIN_ABSENT
+          description: Mã machine-readable cho auth và domain errors.
         request_id:
           type: string
           description: UUID v7, khớp với log server.
@@ -397,25 +414,41 @@ paths:
           → revoke toàn bộ session, trả 401 + clear cookie.
       responses:
         '200':
-          description: OK
+          description: OK — cấp access token mới, rotate refresh cookie
           headers:
             Set-Cookie:
-              description: Cookie `rt` mới.
+              description: |
+                `rt=<refresh_token>; HttpOnly; Secure; SameSite=Lax;
+                Path=/api/v1/auth; Max-Age=604800` (7 ngày).
               schema: { type: string }
           content:
             application/json:
               schema:
-                type: object
-                required: [success, data]
-                properties:
-                  success: { type: boolean, enum: [true] }
-                  data:
-                    type: object
-                    required: [access_token, expires_in]
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
                     properties:
-                      access_token: { type: string }
-                      expires_in: { type: integer }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+                      data:
+                        type: object
+                        required: [access_token, expires_in]
+                        properties:
+                          access_token:
+                            type: string
+                            description: JWT access token mới (HS256).
+                          expires_in:
+                            type: integer
+                            description: TTL access token (giây).
+                            example: 900
+        '401':
+          description: Token invalid / expired / reuse detected
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
+        '403':
+          description: CSRF — Origin không khớp APP_CORS_ORIGINS
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
 
   /auth/logout:
     post:
@@ -425,8 +458,12 @@ paths:
       summary: Đăng xuất — server thu hồi refresh token và clear cookie
       responses:
         '204':
-          description: No Content — server clear cookie `rt`
-        '401': { $ref: '#/components/responses/Unauthorized' }
+          description: No Content — logout thành công hoặc idempotent (token thiếu/không hợp lệ)
+        '403':
+          description: CSRF — Origin không khớp APP_CORS_ORIGINS
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
 
   /auth/me:
     get:
