@@ -13,9 +13,8 @@ dependencies = [
     # Validation
     "pydantic>=2.9.0,<3",
     "pydantic-settings>=2.6.0,<3",
-    # Auth & security
-    "passlib[bcrypt]>=1.7.4,<2",
-    "bcrypt>=4.0.0,<5",
+    # Auth & security (OWASP 2024: argon2id, không bcrypt)
+    "pwdlib[argon2]>=0.3.0,<1",
     "pyjwt>=2.9.0,<3",
     # Database (deferred — actual usage in Phase 1)
     "sqlalchemy>=2.0.36,<3",

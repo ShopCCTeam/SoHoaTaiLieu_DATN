@@ -1,5 +1,7 @@
 """Static configuration values."""
 
+from typing import Literal
+
 # OAuth-style reserved byte for stable error code prefixes.
 PROBLEM_TYPE_BASE = "https://api.example.edu.vn/problems"
 
@@ -7,4 +9,4 @@ PROBLEM_TYPE_BASE = "https://api.example.edu.vn/problems"
 REQUEST_ID_HEADER = "X-Request-ID"
 
 # Cookie attrs for refresh token (cf. docs/api/auth-cookie.md).
-REFRESH_COOKIE_SAMESITE = "lax"
+REFRESH_COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"

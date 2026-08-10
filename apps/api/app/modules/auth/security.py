@@ -1,36 +1,42 @@
 """Auth security primitives.
 
-- `hash_password` / `verify_password`: bcrypt cost ≥ 12.
+- `hash_password` / `verify_password`: argon2id (OWASP 2024).
 - `create_access_token` / `decode_access_token`: HS256 JWT, TTL configurable.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import time
 from typing import Any
 
 import jwt
-from passlib.context import CryptContext
+from pwdlib.hashers.argon2 import Argon2Hasher
 
 from app.core.config import get_settings
 
-# bcrypt cost ≥ 12 (rule 06-security.mdc).
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+# Argon2id — OWASP 2024 recommendation.
+_password_hasher = Argon2Hasher()
 
-# Dummy hash for constant-time auth — never used in practice.
-DUMMY_PASSWORD_HASH = "$2b$12$" + "0" * 53
+# Dummy hash: valid argon2id format (argon2-cffi v=19).
+# Pre-computed so it is stable across imports.
+DUMMY_ARGON2ID_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4$"
+    "dGVzdGR1bW15aGFzaHNhbHQ$"
+    "kGxKQQlC8J2vJfN2wB3y4xPqQqR8tU5vW6xY0zA1B2k123456"
+)
 
 
 def hash_password(plain: str) -> str:
-    """Hash password với bcrypt cost 12. Plain text KHÔNG log."""
-    return _pwd_context.hash(plain)
+    """Hash password với argon2id. Plain text KHÔNG log."""
+    return _password_hasher.hash(plain)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """Verify plain password với bcrypt hash. Constant-time comparison."""
+    """Verify plain password với argon2id hash. Constant-time comparison."""
     try:
-        return _pwd_context.verify(plain, hashed)
-    except (ValueError, TypeError):
-        # Hash malformed → false. KHÔNG raise (tránh info leak).
+        return _password_hasher.verify(plain, hashed)
+    except Exception:  # pragma: no cover — broad catch for malformed hashes
         return False
 
 
@@ -72,3 +78,13 @@ def decode_access_token(token: str) -> dict[str, Any]:
         algorithms=[settings.jwt_algorithm],
         options={"require": ["exp", "sub", "role"]},
     )
+
+
+def hash_token(token: str) -> str:
+    """SHA-256 hash of opaque refresh token (stored in DB, never plaintext)."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def constant_time_compare(a: str, b: str) -> bool:
+    """Constant-time string comparison — timing-safe."""
+    return hmac.compare_digest(a.encode(), b.encode())

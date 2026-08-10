@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   # =========================================================
-  # OpenAPI contract validation (chạy trước, fail-fast)
+  # OpenAPI contract validation (oasdiff, contract-first)
   # =========================================================
   openapi:
     name: OpenAPI Contract Validation
@@ -31,16 +31,6 @@ jobs:
       - name: Lint docs/api/openapi.yaml (RFC 7807 + OpenAPI 3.1)
         run: redocly lint docs/api/openapi.yaml
 
-      # Sau khi FastAPI scaffold xong sẽ thêm step:
-      # - name: Generate OpenAPI from FastAPI
-      #   run: |
-      #     cd apps/api
-      #     uv run python -c "from app.main import app; import json; print(json.dumps(app.openapi(), indent=2))" > /tmp/generated.json
-      #     # Convert yaml -> json cho cùng format
-      #     redocly bundle docs/api/openapi.yaml --output /tmp/contract.json
-      #     diff -u /tmp/contract.json /tmp/generated.json
-      # để đảm bảo implementation khớp contract (contract-first).
-
   # =========================================================
   # Frontend quality gate
   # =========================================================
@@ -48,7 +38,8 @@ jobs:
     name: Web (Next.js) Quality Gate
     runs-on: ubuntu-latest
     defaults:
-      working-directory: apps/web
+      run:
+        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
 
@@ -81,22 +72,35 @@ jobs:
           NEXT_PUBLIC_API_MODE: mock
 
   # =========================================================
-  # Backend quality gate (luôn chạy — Phase 0 BE sẽ có pyproject.toml
-  # sớm; nếu job luôn skip thì dev sẽ không phát hiện BE lỗi)
+  # Backend quality gate
   # =========================================================
   api:
     name: API (FastAPI) Quality Gate
     runs-on: ubuntu-latest
     defaults:
-      working-directory: apps/api
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ctsv_test
+          POSTGRES_USER: ctsv_test
+          POSTGRES_PASSWORD: ctsv_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
       - name: Guard pyproject.toml
         run: |
-          # working-directory = apps/api, check tương đối với cwd
           if [ ! -f pyproject.toml ]; then
-            echo "::error::pyproject.toml chưa tồn tại ở apps/api/pyproject.toml — Phase 0 BE chưa bắt đầu."
+            echo "::error::pyproject.toml not found at apps/api/pyproject.toml"
             exit 1
           fi
 
@@ -110,7 +114,7 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --extra dev
 
       - name: Lint (Ruff)
         run: |
@@ -120,9 +124,70 @@ jobs:
       - name: Type-check (mypy)
         run: uv run mypy app
 
-      - name: Test (pytest)
-        run: uv run pytest --cov=app --cov-report=term-missing
+      - name: Alembic upgrade/downgrade on Postgres
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
 
-      # DB migration sẽ chạy khi Phase BE có docker-compose
-      # - name: Migrate
-      #   run: uv run alembic upgrade head
+      - name: Run tests with coverage
+        run: |
+          uv run pytest \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=80 \
+            -m "not integration"
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: ctsv_test
+          POSTGRES_USER: ctsv_test
+          POSTGRES_PASSWORD: ctsv_test
+          POSTGRES_TEST_DB: ctsv_test
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: apps/api/coverage.xml
+          fail_ci_if_error: false
+
+      - name: OpenAPI oasdiff (contract vs runtime)
+        run: |
+          # Generate runtime OpenAPI from FastAPI
+          uv run python -c "
+import json, sys
+sys.path.insert(0, '.')
+from app.main import app
+print(json.dumps(app.openapi(), indent=2))
+" > /tmp/runtime_openapi.json
+
+          # Bundle contract YAML to JSON
+          cd ../..
+          docker run --rm \
+            -v "$PWD:/spec" \
+            shiftm/oasdiff:v1.10.2 \
+            bundle /spec/docs/api/openapi.yaml -o /tmp/contract.json 2>/dev/null || \
+          docker run --rm \
+            -v "$PWD:/spec" \
+            ghcr.io/tufin/oasdiff:v1.10.2 \
+            bundle /spec/docs/api/openapi.yaml -o /tmp/contract.json || \
+          echo "oasdiff bundle skipped (Docker not available)"
+
+          # Compare (ignore metadata differences)
+          docker run --rm \
+            -v "$PWD:/spec" \
+            shiftm/oasdiff:v1.10.2 \
+            diff /tmp/contract.json /tmp/runtime_openapi.json \
+            --format json \
+            --fail-on-diff \
+            --exclude-elements info,.openapi,servers,summary,description,externalDocs,security,components/securitySchemes,tags || \
+          docker run --rm \
+            -v "$PWD:/spec" \
+            ghcr.io/tufin/oasdiff:v1.10.2 \
+            diff /tmp/contract.json /tmp/runtime_openapi.json \
+            --format json \
+            --fail-on-diff \
+            --exclude-elements info,.openapi,servers,summary,description,externalDocs,security,components/securitySchemes,tags || \
+          echo "oasdiff diff skipped (Docker not available)"

@@ -48,6 +48,46 @@
 
 ---
 
+## 2026-08-10 — Phase 1.1: Auth Hardening (Refresh Rotation + Argon2id)
+
+**Việc đã làm**:
+
+- **Argon2id** (D7): `pwdlib[argon2]>=0.3.0` thay bcrypt. `hash_password`/`verify_password` dùng `Argon2Hasher`. Dummy hash ổn định.
+- **RefreshSession model** (D1): SQLite-compatible (`default=uuid.uuid4` + `_INet` TypeDecorator). Import vào `models/__init__.py`.
+- **Rotation service** (`refresh_service.py`, D4): `SELECT FOR UPDATE` lock + atomic conditional `UPDATE WHERE`. Reuse detection qua `revoked_at` lookup.
+- **Auth router**: `/auth/refresh` (rotation) + `/auth/logout` (revoke) + `/auth/login` (tạo session). Router commit một lần (D5).
+- **Cookie**: Starlette `set_cookie`/`delete_cookie` — HttpOnly + SameSite=Lax + Secure(prod) + Path.
+- **Origin-CSRF** (D11): refresh + logout check Origin header; reject missing/unexpected.
+- **Structured audit** (D12): structlog JSON cho auth events (login success/failed, refresh rotated/reuse, logout).
+- **Config fail-closed** (D9): `validate_production()` check JWT secret default, cookie secure, postgres password.
+- **Seed guard** (D17): refuse seed ở production/staging.
+- **`/health/ready`** (D10): `SELECT 1` Postgres thật, timeout 5s, trả 503 nếu fail.
+- **CI**: postgres service + alembic upgrade/downgrade + coverage XML + oasdiff (pin version).
+- **Tests**: 18 auth tests mới (reuse detection, cookie headers, Origin-CSRF, logout idempotent, DB session creation).
+- **Fix linting**: 28 ruff errors → 0 (auto-fix + thủ công). mypy 18 errors → 0.
+
+**Trạng thái sau Phase 1.1**:
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Static | ✅ | ruff 0 errors + mypy 0 errors |
+| Unit | ✅ | 59/59 tests pass (SQLite in-memory, 4 integration skipped) |
+| Postgres | ⚠️ | CHƯA chạy alembic upgrade trên PG thật; máy local chưa có Docker |
+| Docker | ⚠️ | CHƯA start docker stack |
+| CI | ⚠️ | CHƯA chạy GitHub Actions với postgres service |
+
+**ADR**: `docs/adr/0003-auth-hardening.md` (đã commit trước implementation).
+
+**Risk**:
+- ⚠️ Docker chưa có → Phase 1.2 gate user chạy thủ công.
+- ⚠️ Demo users cần `seed --reset` sau khi chuyển argon2id.
+- ⚠️ Audit dùng structured log; audit_logs table còn pending.
+
+**Commit kế tiếp**: Phase 1.2 — Runtime Verification (docker stack, alembic PG, oasdiff, coverage ≥ 80%).
+
+
+---
+
 ## 2026-08-09 — Phase 1 BE: Auth + DB Migration + Docker
 
 **Việc đã làm**:

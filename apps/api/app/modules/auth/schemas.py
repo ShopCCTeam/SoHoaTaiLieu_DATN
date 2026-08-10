@@ -1,7 +1,6 @@
 """Pydantic schemas cho auth endpoints.
 
 Field name = snake_case (match OpenAPI convention, xem `docs/api/openapi.yaml`).
-Service layer convert sang camelCase domain model cho FE.
 """
 from __future__ import annotations
 
@@ -39,15 +38,14 @@ class LoginResponse(BaseModel):
     user: UserPublic
 
 
+class RefreshResponse(BaseModel):
+    """POST /auth/refresh response."""
+
+    access_token: str
+    expires_in: int
+
+
 class MeResponse(BaseModel):
     """GET /auth/me response."""
 
     user: UserPublic
-
-
-# Envelope (success wrapper)
-class ApiResponse(BaseModel):
-    """Standard success envelope. Mirror `apps/web/lib/api/client.ts`."""
-
-    success: bool = True
-    data: LoginResponse | MeResponse

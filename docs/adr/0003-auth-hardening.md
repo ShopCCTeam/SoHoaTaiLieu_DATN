@@ -1,6 +1,6 @@
 # ADR-0003: Auth Hardening — Refresh Rotation + Argon2id + Runtime Postgres Verification
 
-> Status: **Proposed** (2026-08-09)
+> Status: **Accepted** (2026-08-09 → implemented 2026-08-10)
 > Author: AI agent + user review
 > Review: user 2026-08-10 (v2 → v3) — **conditional approval**, cần 10 sửa đổi v3
 

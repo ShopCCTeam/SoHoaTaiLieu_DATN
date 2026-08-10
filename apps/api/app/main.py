@@ -59,12 +59,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "alive"}
 
     @app.get("/health/ready", tags=["health"])
-    async def health_ready() -> dict[str, str | bool]:
-        """Readiness probe — sẵn sàng nhận request. Phase 1: chưa check DB/Redis."""
-        return {
-            "status": "ready",
-            "config_loaded": True,
-        }
+    async def health_ready() -> JSONResponse:
+        """Readiness probe — check Postgres connectivity (D10)."""
+        settings = get_settings()
+        try:
+            from sqlalchemy import text
+            from sqlalchemy.ext.asyncio import create_async_engine
+
+            engine = create_async_engine(
+                settings.postgres_url,
+                echo=False,
+                pool_pre_ping=True,
+                connect_timeout=settings.postgres_timeout_seconds,
+            )
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            await engine.dispose()
+            return JSONResponse(
+                content={"status": "ready", "postgres": "ok"},
+                headers={"X-Request-ID": "ready-check"},
+            )
+        except Exception:
+            _logger.error("health_ready_check_failed", postgres=settings.postgres_host)
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "postgres": "unavailable"},
+                headers={"X-Request-ID": "ready-check"},
+            )
 
     # ---- Routers ----
     # Tất cả domain routes đi qua api_prefix để dễ version sau này.

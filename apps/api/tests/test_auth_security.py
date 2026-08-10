@@ -8,6 +8,7 @@ import jwt
 import pytest
 
 from app.modules.auth.security import (
+    DUMMY_ARGON2ID_HASH,
     create_access_token,
     decode_access_token,
     hash_password,
@@ -19,7 +20,7 @@ def test_hash_and_verify_roundtrip() -> None:
     plain = "Demo@2026"
     hashed = hash_password(plain)
     assert hashed != plain
-    assert hashed.startswith("$2b$")
+    assert hashed.startswith("$argon2id$")
     assert verify_password(plain, hashed) is True
 
 
@@ -29,7 +30,20 @@ def test_verify_wrong_password_returns_false() -> None:
 
 
 def test_verify_malformed_hash_returns_false() -> None:
-    assert verify_password("anything", "not-a-bcrypt-hash") is False
+    assert verify_password("anything", "not-a-argon2id-hash") is False
+
+
+def test_dummy_hash_constant() -> None:
+    """DUMMY_ARGON2ID_HASH là valid argon2id format."""
+    assert DUMMY_ARGON2ID_HASH.startswith("$argon2id$")
+    # Dummy hash không verify được bất kỳ password nào
+    assert verify_password("any", DUMMY_ARGON2ID_HASH) is False
+
+
+def test_verify_dummy_hash_returns_false() -> None:
+    """Khi user không tồn tại, service gọi verify với dummy hash → phải trả False."""
+    result = verify_password("Demo@2026", DUMMY_ARGON2ID_HASH)
+    assert result is False
 
 
 def test_create_and_decode_access_token_roundtrip() -> None:

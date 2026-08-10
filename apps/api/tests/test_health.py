@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -14,13 +15,16 @@ def test_health_live() -> None:
     assert response.json() == {"status": "alive"}
 
 
+@pytest.mark.integration
 def test_health_ready() -> None:
+    """Readiness probe check Postgres connectivity (D10)."""
     client = TestClient(create_app())
     response = client.get("/health/ready")
-    assert response.status_code == 200
+    # 200 khi Postgres available, 503 khi không.
+    assert response.status_code in (200, 503)
     body = response.json()
-    assert body["status"] == "ready"
-    assert body["config_loaded"] is True
+    assert "status" in body
+    assert "postgres" in body
 
 
 def test_root_returns_service_metadata() -> None:

@@ -5,7 +5,6 @@ Quy tắc:
 - Production phải set POSTGRES_PASSWORD, JWT_SECRET, MINIO_SECRET_KEY
   qua secret manager (KHÔNG commit .env).
 """
-
 from __future__ import annotations
 
 from functools import lru_cache
@@ -43,6 +42,7 @@ class Settings(BaseSettings):
     postgres_db: str = "ctsv"
     postgres_user: str = "ctsv_app"
     postgres_password: SecretStr = Field(default=SecretStr("change-me"))
+    postgres_timeout_seconds: int = 5
 
     # ---- Redis (Celery broker) ----
     redis_url: str = "redis://localhost:6379/0"
@@ -89,6 +89,38 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [v.strip() for v in value.split(",") if v.strip()]
         return value
+
+    # ---- Seed guard ----
+    @property
+    def allow_seed(self) -> bool:
+        """Cho phép seed chỉ ở development/test."""
+        return self.app_env in ("development", "test")
+
+    # ---- Fail-closed checks (D9) ----
+    def validate_production(self) -> list[str]:
+        """Return list of warnings/errors nếu production config không an toàn."""
+        issues: list[str] = []
+
+        # JWT secret phải được override ở production
+        default_jwt = "dev-only-change-in-production-use-32-plus-bytes"
+        if self.app_env == "production":
+            if self.jwt_secret.get_secret_value() == default_jwt:
+                issues.append(
+                    "JWT_SECRET is using default value in production. "
+                    "Set APP_ENV=production and JWT_SECRET to a strong secret."
+                )
+            if not self.postgres_password.get_secret_value() or \
+               self.postgres_password.get_secret_value() == "change-me":
+                issues.append(
+                    "POSTGRES_PASSWORD is using default value in production."
+                )
+            if self.refresh_cookie_secure is False:
+                issues.append(
+                    "refresh_cookie_secure is False in production. "
+                    "Set REFRESH_COOKIE_SECURE=true when deploying behind HTTPS."
+                )
+
+        return issues
 
 
 @lru_cache(maxsize=1)

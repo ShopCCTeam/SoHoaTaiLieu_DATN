@@ -81,7 +81,19 @@ async def seed(*, reset: bool = False) -> None:
 
     Args:
         reset: Nếu True, xoá users hiện có trước khi seed.
+
+    Raises:
+        SystemExit: nếu app_env = production/staging.
     """
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.allow_seed:
+        print("ERROR: Seed is not allowed in production/staging environment.")
+        print(f"  Current APP_ENV: {settings.app_env}")
+        print("  Set APP_ENV=development or APP_ENV=test to allow seeding.")
+        raise SystemExit(1)
+
     session_factory = get_session_factory()
 
     if reset:

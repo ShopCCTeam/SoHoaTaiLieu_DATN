@@ -50,9 +50,9 @@ async def authenticate(
     user = await get_user_by_email(session, email)
     if user is None:
         # Constant-time: verify dummy hash để tránh timing oracle.
-        from app.modules.auth.security import DUMMY_PASSWORD_HASH
+        from app.modules.auth.security import DUMMY_ARGON2ID_HASH
 
-        verify_password_fn(password, DUMMY_PASSWORD_HASH)
+        verify_password_fn(password, DUMMY_ARGON2ID_HASH)
         return (AuthResult.INVALID_CREDENTIALS, None)
     if not user.is_active:
         return (AuthResult.USER_INACTIVE, None)
