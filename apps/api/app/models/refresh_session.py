@@ -13,9 +13,38 @@ from typing import Any
 from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.types import TypeDecorator
+from sqlalchemy.types import CHAR, TypeDecorator
 
 from app.db.base import Base
+
+
+class _UUID(TypeDecorator[uuid.UUID]):
+    """Store UUID as CHAR(36) on SQLite, UUID on PostgreSQL.
+
+    Wrap postgresql.UUID(as_uuid=True) — SQLite không có native UUID type.
+    """
+
+    impl = CHAR(36)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect: Any) -> Any:
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(UUID(as_uuid=True))
+        return dialect.type_descriptor(CHAR(36))
+
+    def process_bind_param(self, value: uuid.UUID | None, dialect: Any) -> Any:
+        if value is None:
+            return None
+        if dialect.name == "postgresql":
+            return value
+        return str(value)
+
+    def process_result_value(self, value: Any, dialect: Any) -> uuid.UUID | None:
+        if value is None:
+            return None
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
 
 
 class _INet(TypeDecorator[str]):
@@ -41,7 +70,7 @@ class RefreshSession(Base):
     # id: Python-side default for both SQLite and PostgreSQL.
     # Do NOT use server_default=func.gen_random_uuid() — SQLite has no such function.
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        _UUID(),
         primary_key=True,
         default=uuid.uuid4,
     )
@@ -52,7 +81,7 @@ class RefreshSession(Base):
         index=True,
     )
     family_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        _UUID(),
         nullable=False,
         default=uuid.uuid4,
         index=True,
@@ -86,7 +115,7 @@ class RefreshSession(Base):
         index=True,
     )
     replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        _UUID(),
         ForeignKey("refresh_sessions.id", ondelete="SET NULL"),
         nullable=True,
     )

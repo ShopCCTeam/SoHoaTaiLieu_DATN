@@ -32,11 +32,18 @@ from app.modules.auth.security import hash_token
 
 @dataclass
 class RotationResult:
-    """Kết quả rotation thành công."""
+    """Kết quả rotation thành công.
+
+    `user_id` + `family_id` được carry ra để router ghi audit log KHÔNG leak
+    refresh_token plaintext. Trước đây router hack `access_token.split(".")[0]`
+    (luôn None) và `refresh_token[:16]` (LEAK SECRET) — đã fix ở P0.
+    """
 
     access_token: str
     refresh_token: str  # plaintext (sent to client)
     expires_in: int
+    user_id: str  # user.id của session vừa rotate
+    family_id: uuid.UUID  # family của session vừa rotate
 
 
 @dataclass
@@ -210,6 +217,8 @@ async def rotate_refresh(
         access_token=access_token,
         refresh_token=new_token,
         expires_in=settings.jwt_access_token_ttl_seconds,
+        user_id=user.id,
+        family_id=family_id,
     )
 
 

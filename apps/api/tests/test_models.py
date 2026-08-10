@@ -1,16 +1,19 @@
 """Unit tests cho ORM models.
 
-Model tests dùng PG engine vì RefreshSession dùng PG-specific types
-(UUID, INET, gen_random_uuid). SQLite không hỗ trợ.
+Model tests chạy trên SQLite (in-memory qua `db_engine`) nhờ TypeDecorator
+`_UUID` + `_INet` trong `app/models/refresh_session.py` — wrap PG-specific
+types thành String/CHAR để SQLite chấp nhận. Không cần Postgres ở local.
 
-Local: pytest SKIP các test này (Postgres required).
-CI: chạy với postgres service.
+Local: chạy thẳng, không skip.
+CI: chạy giống local (SQLite in-memory) cho test_models; PG chỉ cần cho
+    test_alembic_upgrade_downgrade_on_postgres (đã được mark integration).
 """
 from __future__ import annotations
 
-from datetime import UTC
+import uuid
+from datetime import UTC, datetime
 
-import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.models.user import User  # noqa: F401 — no PG types, OK on SQLite
 
@@ -30,22 +33,17 @@ def test_refresh_session_tablename() -> None:
     assert RefreshSession.__tablename__ == "refresh_sessions"
 
 
-@pytest.mark.integration
-async def test_refresh_session_has_required_columns() -> None:
-    """Cần Postgres vì RefreshSession dùng UUID + INET."""
-    import uuid
-    from datetime import datetime
+async def test_refresh_session_has_required_columns(
+    db_engine: AsyncEngine,
+) -> None:
+    """Tạo + load session — verify tất cả required columns persist.
 
-    from app.db.base import Base
-    from app.models.user import User
+    Chạy trên SQLite qua `db_engine` (TypeDecorator _UUID + _INet).
+    """
+    from app.models.refresh_session import RefreshSession
     from app.modules.auth.security import hash_password
-    from tests.conftest import get_postgres_test_engine
 
-    engine = get_postgres_test_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    factory = engine.session_factory
+    factory = async_sessionmaker(bind=db_engine, expire_on_commit=False)
     async with factory() as session:
         user = User(
             id=str(uuid.uuid4()),
@@ -57,8 +55,6 @@ async def test_refresh_session_has_required_columns() -> None:
         )
         session.add(user)
         await session.commit()
-
-        from app.models.refresh_session import RefreshSession
 
         rs = RefreshSession(
             id=uuid.uuid4(),
@@ -75,27 +71,20 @@ async def test_refresh_session_has_required_columns() -> None:
         assert loaded.user_id == user.id
         assert loaded.token_hash == "a" * 64
         assert loaded.revoked_at is None
-        assert loaded.ip_address is None  # INET null
-
-    await engine.dispose()
+        assert loaded.ip_address is None  # INet null
 
 
-@pytest.mark.integration
-async def test_refresh_session_ip_address_inet() -> None:
-    """Cần Postgres vì cột INET."""
-    import uuid
-    from datetime import datetime
+async def test_refresh_session_ip_address_inet(
+    db_engine: AsyncEngine,
+) -> None:
+    """Verify cột IP address lưu + load đúng (INet trên PG, String trên SQLite).
 
-    from app.db.base import Base
-    from app.models.user import User
+    Chạy trên SQLite qua `db_engine` (TypeDecorator _INet).
+    """
+    from app.models.refresh_session import RefreshSession
     from app.modules.auth.security import hash_password
-    from tests.conftest import get_postgres_test_engine
 
-    engine = get_postgres_test_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    factory = engine.session_factory
+    factory = async_sessionmaker(bind=db_engine, expire_on_commit=False)
     async with factory() as session:
         user = User(
             id=str(uuid.uuid4()),
@@ -107,15 +96,13 @@ async def test_refresh_session_ip_address_inet() -> None:
         session.add(user)
         await session.commit()
 
-        from app.models.refresh_session import RefreshSession
-
         rs = RefreshSession(
             id=uuid.uuid4(),
             user_id=user.id,
             family_id=uuid.uuid4(),
             token_hash="b" * 64,
             expires_at=datetime.now(UTC),
-            ip_address="192.168.1.100",  # INET
+            ip_address="192.168.1.100",  # String trên SQLite, INET trên PG
         )
         session.add(rs)
         await session.commit()
@@ -123,5 +110,3 @@ async def test_refresh_session_ip_address_inet() -> None:
         loaded = await session.get(RefreshSession, rs.id)
         assert loaded is not None
         assert str(loaded.ip_address) == "192.168.1.100"
-
-    await engine.dispose()

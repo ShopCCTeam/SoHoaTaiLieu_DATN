@@ -56,7 +56,12 @@ def test_alembic_base_is_none(script_dir: ScriptDirectory) -> None:
 
 @pytest.mark.integration
 def test_alembic_upgrade_downgrade_on_postgres() -> None:
-    """Apply + rollback trên Postgres thật. Cần postgres service trong CI."""
+    """Apply + rollback trên Postgres thật. Cần postgres service trong CI.
+
+    Skip khi không connect được (dev máy không có Docker stack).
+    """
+    import socket
+
     from alembic import command
     from alembic.config import Config
 
@@ -67,9 +72,17 @@ def test_alembic_upgrade_downgrade_on_postgres() -> None:
     password = os.environ.get("POSTGRES_PASSWORD", "ctsv_test")
     url = f"postgresql://{user}:{password}@{host}:{port}/{db}"
 
+    # Probe TCP trước — skip nhanh nếu Postgres không có
+    try:
+        with socket.create_connection((host, int(port)), timeout=1):
+            pass
+    except (ConnectionRefusedError, socket.gaierror, TimeoutError, OSError) as exc:
+        pytest.skip(f"Postgres không khả dụng tại {host}:{port}: {exc!r}")
+
+    # Alembic folder ở `apps/api/alembic/` (không phải `tests/alembic/`).
     here = Path(__file__).parent
     cfg = Config()
-    cfg.set_main_option("script_location", str(here / "alembic"))
+    cfg.set_main_option("script_location", str(here.parent / "alembic"))
     cfg.set_main_option("sqlalchemy.url", url)
 
     # Upgrade → downgrade → upgrade round-trip

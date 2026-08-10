@@ -335,8 +335,8 @@ async def refresh(
 
     audit_log(
         "auth.refresh.rotated",
-        user_id=rotation.access_token.split(".")[0] if False else None,
-        family_id=str(rotation.refresh_token[:16]),  # placeholder, real id in service
+        user_id=rotation.user_id,
+        family_id=str(rotation.family_id),
         ip=ip,
     )
 

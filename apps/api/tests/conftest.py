@@ -42,8 +42,8 @@ def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
 async def db_engine(tmp_path: Path):
     """SQLite async engine, tạo schema mới mỗi test.
 
-    RefreshSession (PG UUID/INET) không được tạo trên SQLite.
-    Integration tests trên Postgres dùng get_postgres_test_engine().
+    RefreshSession (PG UUID/INET) wrap bằng TypeDecorator để chạy được
+    trên SQLite. Integration tests trên Postgres dùng `pg_engine` fixture.
     """
     db_path = tmp_path / "test.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
@@ -53,11 +53,47 @@ async def db_engine(tmp_path: Path):
     await engine.dispose()
 
 
+@pytest.fixture(scope="function")
+async def pg_engine():
+    """Postgres async engine cho integration tests.
+
+    Skip khi không connect được (dev máy không có Docker stack).
+    CI chạy với postgres service — fixture connect thành công.
+
+    Yields:
+        AsyncEngine đã init schema xong.
+
+    Raises:
+        pytest.skip() — khi connect thất bại (ConnectionRefusedError, v.v.).
+    """
+    import socket
+
+    engine = get_postgres_test_engine()
+    try:
+        async with engine.connect() as conn:
+            await conn.run_sync(lambda c: None)
+    except (ConnectionRefusedError, socket.gaierror, OSError) as exc:
+        await engine.dispose()
+        pytest.skip(f"Postgres không khả dụng: {exc!r}")
+    except Exception as exc:
+        # asyncpg có thể raise ConnectionDoesNotExistError/InvalidPasswordError...
+        # Bắt mọi lỗi kết nối để skip an toàn.
+        await engine.dispose()
+        pytest.skip(f"Postgres connect failed: {type(exc).__name__}: {exc}")
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+
+
 def get_postgres_test_engine() -> AsyncEngine:
     """Postgres engine cho integration tests (CI: có postgres service).
 
     Env vars được set trong CI job:
-      POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
+        POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
     """
     host = os.environ.get("POSTGRES_HOST", "localhost")
     port = os.environ.get("POSTGRES_PORT", "5432")

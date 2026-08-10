@@ -5,6 +5,8 @@ Test theo ADR-0003 v3:
 - Origin-CSRF check.
 - Refresh token reuse detection.
 - Logout idempotent.
+- P0 hardening: audit log không được chứa refresh_token plaintext,
+  revoke phải ghi DB (không chỉ status code).
 """
 from __future__ import annotations
 
@@ -12,7 +14,9 @@ import asyncio
 from datetime import UTC
 
 import pytest
+import structlog.testing
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.session import get_session
@@ -251,7 +255,14 @@ async def test_refresh_invalid_token_returns_401(api_client: AsyncClient) -> Non
 async def test_refresh_rotation_revokes_old_token(
     api_client: AsyncClient,
     seeded_user: User,
+    db_session_factory: async_sessionmaker,
 ) -> None:
+    """P0 bảo vệ: rotation phải revoke toàn bộ family trong DB.
+
+    Test cũ chỉ check status code — pass ngay cả khi fix P0-2 (revert
+    family_id về uuid4) bị bỏ. Bây giờ assert session.active_count theo
+    family phải về 0 sau reuse detected.
+    """
     # Login
     login = await api_client.post(
         "/api/v1/auth/login",
@@ -293,6 +304,35 @@ async def test_refresh_rotation_revokes_old_token(
     )
     assert r2.status_code == 401
     assert r2.json()["code"] == "AUTH_REFRESH_REUSE_DETECTED"
+
+    # P0 bảo vệ: sau reuse, toàn bộ session trong family phải revoked.
+    # Lấy family_id qua bất kỳ session nào còn trong DB (token_hash của
+    # rt_token_2 chưa bị rotate nên revoked_at IS NULL — tìm family từ nó).
+    from app.modules.auth.security import hash_token
+
+    new_token_hash = hash_token(rt_token_2)
+    async with db_session_factory() as session:
+        row = await session.execute(
+            select(RefreshSession).where(
+                RefreshSession.token_hash == new_token_hash,
+            )
+        )
+        rs = row.scalar_one()
+        family_id = rs.family_id
+
+        # Sau reuse detected, mọi session trong family phải có revoked_at
+        active_count = await session.execute(
+            select(func.count())
+            .select_from(RefreshSession)
+            .where(
+                RefreshSession.family_id == family_id,
+                RefreshSession.revoked_at.is_(None),
+            )
+        )
+    assert active_count.scalar_one() == 0, (
+        f"Reuse detected nhưng family={family_id} còn session active — "
+        "fix P0-2 (revoke_family) đã bị revert"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +399,60 @@ async def test_refresh_unexpected_origin_returns_403(
 
 
 # ---------------------------------------------------------------------------
+# Audit log safety — P0 hardening
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_audit_log_does_not_leak_refresh_token(
+    api_client: AsyncClient,
+    seeded_user: User,
+) -> None:
+    """P0: refresh token plaintext KHÔNG được xuất hiện trong audit log.
+
+    Trước P0 fix: router hack `family_id=str(rotation.refresh_token[:16])`
+    → log chứa 16 ký tự đầu của refresh token (LEAK SECRET).
+
+    Test này capture structlog output xuyên suốt /auth/refresh, assert không
+    substring nào của refresh token xuất hiện trong bất kỳ event nào.
+    """
+    # Login first
+    login = await api_client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@example.edu.vn", "password": "Demo@2026"},
+    )
+    cookie_header = login.headers.get("set-cookie", "")
+    rt_token = None
+    for part in cookie_header.split(";"):
+        if "rt=" in part.lower():
+            rt_token = part.split("rt=", 1)[1].strip().split(";")[0]
+            break
+    assert rt_token is not None
+    # Substring đủ dài để bắt được leak [:16] nhưng tránh false positive.
+    leaked_substrings = [rt_token[:16], rt_token[:8], rt_token[8:24]]
+    assert len(rt_token) >= 24
+
+    # Capture structlog trong khi /auth/refresh chạy
+    with structlog.testing.capture_logs() as captured:
+        response = await api_client.post(
+            "/api/v1/auth/refresh",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Cookie": f"rt={rt_token}",
+            },
+        )
+    assert response.status_code == 200
+
+    # Assert không có substring nào của refresh token trong captured events
+    for event in captured:
+        event_str = str(event)
+        for sub in leaked_substrings:
+            assert sub not in event_str, (
+                f"Audit log leak: refresh_token substring {sub!r} "
+                f"xuất hiện trong event: {event}"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Logout tests
 # ---------------------------------------------------------------------------
 
@@ -366,6 +460,7 @@ async def test_refresh_unexpected_origin_returns_403(
 async def test_logout_revokes_token_and_clears_cookie(
     api_client: AsyncClient,
     seeded_user: User,
+    db_session_factory: async_sessionmaker,
 ) -> None:
     # Login
     login = await api_client.post(
@@ -394,6 +489,22 @@ async def test_logout_revokes_token_and_clears_cookie(
     assert "rt=" in clear_cookie.lower()
     assert "max-age=0" in clear_cookie.lower()
 
+    # P0 bảo vệ: session trong DB phải có revoked_at IS NOT NULL.
+    from app.modules.auth.security import hash_token
+
+    rt_token_hash = hash_token(rt_token)
+    async with db_session_factory() as session:
+        row = await session.execute(
+            select(RefreshSession).where(
+                RefreshSession.token_hash == rt_token_hash,
+            )
+        )
+        rs = row.scalar_one()
+        assert rs.revoked_at is not None, (
+            "Logout trả 204 nhưng session chưa revoke trong DB — "
+            "revoke_refresh_token đã bị bypass"
+        )
+
 
 @pytest.mark.asyncio
 async def test_logout_idempotent_no_token(api_client: AsyncClient) -> None:
@@ -418,15 +529,17 @@ async def test_logout_csrf_requires_origin(api_client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_refresh_inactive_user_returns_401_no_session_created(
+    api_client: AsyncClient,
     db_session_factory: async_sessionmaker,
 ) -> None:
-    """Inactive user during refresh → 401, không tạo session mới."""
-    from sqlalchemy import func, select
+    """P0 bảo vệ: inactive user ở refresh → 401 + KHÔNG tạo session mới.
 
-    from app.main import create_app
+    Test cũ viết sai: user inactive → 401 ngay ở login → không hề gọi
+    /auth/refresh. Fix: login trước (active) → set is_active=False → /refresh.
+    """
     from app.modules.auth.security import hash_password
 
-    # Tạo inactive user + active session
+    # Tạo user ACTIVE trước (login phải thành công)
     async with db_session_factory() as session:
         user = User(
             id="usr_inactive_refresh",
@@ -434,37 +547,68 @@ async def test_refresh_inactive_user_returns_401_no_session_created(
             password_hash=hash_password("Demo@2026"),
             full_name="Inactive Refresh Test",
             role="staff",
-            is_active=False,
+            is_active=True,  # ACTIVE để login được
         )
         session.add(user)
         await session.commit()
 
-    app = create_app()
+    # Login lấy cookie
+    login = await api_client.post(
+        "/api/v1/auth/login",
+        json={"email": "inactive_refresh@example.edu.vn", "password": "Demo@2026"},
+    )
+    assert login.status_code == 200, login.text
+    cookie_header = login.headers.get("set-cookie", "")
+    rt_token = None
+    for part in cookie_header.split(";"):
+        if "rt=" in part.lower():
+            rt_token = part.split("rt=", 1)[1].strip().split(";")[0]
+            break
+    assert rt_token is not None
 
-    async def _override():
-        async with db_session_factory() as s:
-            yield s
-            await s.commit()
-
-    app.dependency_overrides[get_session] = _override
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        # Login với inactive user → nhận session
-        login = await client.post(
-            "/api/v1/auth/login",
-            json={"email": "inactive_refresh@example.edu.vn", "password": "Demo@2026"},
-        )
-        assert login.status_code == 401  # Login bị từ chối
-        assert login.json()["code"] == "AUTH_INVALID_CREDENTIALS"
-
-    # Count sessions — không có session nào được tạo
+    # Set user inactive SAU khi login
     async with db_session_factory() as session:
-        count = await session.execute(
-            select(func.count()).select_from(RefreshSession).where(
-                RefreshSession.user_id == "usr_inactive_refresh"
-            )
+        u = await session.get(User, "usr_inactive_refresh")
+        assert u is not None
+        u.is_active = False
+        await session.commit()
+
+    # Đếm session SAU login nhưng TRƯỚC refresh — baseline phải là 1
+    # (1 session từ login vừa rồi).
+    async with db_session_factory() as session:
+        before = await session.execute(
+            select(func.count())
+            .select_from(RefreshSession)
+            .where(RefreshSession.user_id == "usr_inactive_refresh")
         )
-        assert count.scalar_one() == 0
+    before_count = before.scalar_one()
+    assert before_count == 1, (
+        f"Login phải tạo 1 session, hiện có {before_count}"
+    )
+
+    # Refresh → 401 AUTH_REFRESH_INVALID (inactive user ở refresh)
+    response = await api_client.post(
+        "/api/v1/auth/refresh",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Cookie": f"rt={rt_token}",
+        },
+    )
+    assert response.status_code == 401, response.text
+    assert response.json()["code"] == "AUTH_REFRESH_INVALID"
+
+    # Số session KHÔNG tăng (rotation bị từ chối trước khi tạo session mới)
+    async with db_session_factory() as session:
+        after = await session.execute(
+            select(func.count())
+            .select_from(RefreshSession)
+            .where(RefreshSession.user_id == "usr_inactive_refresh")
+        )
+    after_count = after.scalar_one()
+    assert after_count == before_count, (
+        f"Refresh trên inactive user đã tạo {after_count - before_count} "
+        "session mới — rotation phải abort trước session.add"
+    )
 
 
 @pytest.mark.asyncio
