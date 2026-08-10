@@ -2,8 +2,6 @@
 
 - `hash_password` / `verify_password`: bcrypt cost ≥ 12.
 - `create_access_token` / `decode_access_token`: HS256 JWT, TTL configurable.
-
-Refresh token (HttpOnly cookie) sẽ thêm ở Phase 2.
 """
 from __future__ import annotations
 
@@ -17,6 +15,9 @@ from app.core.config import get_settings
 
 # bcrypt cost ≥ 12 (rule 06-security.mdc).
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+
+# Dummy hash for constant-time auth — never used in practice.
+DUMMY_PASSWORD_HASH = "$2b$12$" + "0" * 53
 
 
 def hash_password(plain: str) -> str:

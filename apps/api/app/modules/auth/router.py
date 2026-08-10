@@ -21,7 +21,7 @@ from app.modules.auth.schemas import (
     UserPublic,
 )
 from app.modules.auth.security import create_access_token, verify_password
-from app.modules.auth.service import authenticate
+from app.modules.auth.service import AuthResult, authenticate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -47,18 +47,25 @@ async def login(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Verify email + password → trả access token + user info."""
-    user = await authenticate(
+    result, user = await authenticate(
         session=session,
         email=body.email,
         password=body.password,
         verify_password_fn=verify_password,
     )
-    if user is None:
+    if result == AuthResult.INVALID_CREDENTIALS:
+        raise unauthorized(
+            detail="Email hoặc mật khẩu không chính xác.",
+            code="AUTH_INVALID_CREDENTIALS",
+        )
+    if result == AuthResult.USER_INACTIVE:
+        # Cùng 401 (chống user enumeration ở login).
         raise unauthorized(
             detail="Email hoặc mật khẩu không chính xác.",
             code="AUTH_INVALID_CREDENTIALS",
         )
 
+    # --- success ---
     settings = get_settings()
     access_token = create_access_token(subject=user.id, role=user.role)
     user_public = UserPublic.model_validate(user)
@@ -67,6 +74,7 @@ async def login(
     return _envelope(
         LoginResponse(
             access_token=access_token,
+            token_type="bearer",  # noqa: S106
             expires_in=settings.jwt_access_token_ttl_seconds,
             user=user_public,
         ).model_dump()

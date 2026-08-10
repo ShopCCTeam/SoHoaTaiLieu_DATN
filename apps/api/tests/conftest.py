@@ -40,7 +40,11 @@ def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(scope="function")
 async def db_engine(tmp_path: Path):
-    """SQLite async engine, tạo schema mới mỗi test."""
+    """SQLite async engine, tạo schema mới mỗi test.
+
+    RefreshSession (PG UUID/INET) không được tạo trên SQLite.
+    Integration tests trên Postgres dùng get_postgres_test_engine().
+    """
     db_path = tmp_path / "test.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     async with engine.begin() as conn:

@@ -90,6 +90,11 @@ components:
             # Auth errors (Phase 1.1)
             - AUTH_INVALID_CREDENTIALS
             - AUTH_USER_INACTIVE
+            - AUTH_USER_NOT_FOUND
+            - AUTH_USER_DISABLED
+            - AUTH_MISSING_TOKEN
+            - AUTH_INVALID_TOKEN
+            - AUTH_TOKEN_EXPIRED
             - AUTH_REFRESH_INVALID
             - AUTH_REFRESH_EXPIRED
             - AUTH_REFRESH_REUSE_DETECTED
@@ -319,6 +324,11 @@ components:
               description: |
                 JWT access token. FE giữ trong memory, KHÔNG lưu localStorage.
                 Gắn vào `Authorization: Bearer <access_token>`.
+            token_type:
+              type: string
+              enum: [bearer]
+              description: |
+                Luôn là "bearer" — tuân chuẩn RFC 6750.
             expires_in:
               type: integer
               description: TTL của access token (giây).

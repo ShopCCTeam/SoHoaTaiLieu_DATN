@@ -2,12 +2,26 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from enum import Enum
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import UserRole
 from app.models.user import User
+
+
+class AuthResult(Enum):
+    """Kết quả authenticate — tri-state để router phân biệt."""
+
+    OK = "ok"
+    """Email/password đúng, user active."""
+
+    INVALID_CREDENTIALS = "invalid_credentials"
+    """Email không tồn tại hoặc password sai."""
+
+    USER_INACTIVE = "user_inactive"
+    """Email đúng nhưng user bị is_active=False."""
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
@@ -25,24 +39,26 @@ async def authenticate(
     email: str,
     password: str,
     verify_password_fn: Callable[[str, str], bool],
-) -> User | None:
-    """Verify email + password. Return User hoặc None.
+) -> tuple[AuthResult, User | None]:
+    """Verify email + password.
 
-    Trả None khi:
-    - Email không tồn tại.
-    - Password sai.
-    - User bị `is_active=False`.
+    Returns:
+        (AuthResult.OK, user) — đăng nhập thành công.
+        (AuthResult.INVALID_CREDENTIALS, None) — email không tồn tại hoặc password sai.
+        (AuthResult.USER_INACTIVE, None) — email đúng nhưng user bị inactive.
     """
     user = await get_user_by_email(session, email)
     if user is None:
-        # Constant-time-ish: vẫn verify dummy hash để tránh timing oracle.
-        verify_password_fn(password, "$2b$12$" + "0" * 53)
-        return None
+        # Constant-time: verify dummy hash để tránh timing oracle.
+        from app.modules.auth.security import DUMMY_PASSWORD_HASH
+
+        verify_password_fn(password, DUMMY_PASSWORD_HASH)
+        return (AuthResult.INVALID_CREDENTIALS, None)
     if not user.is_active:
-        return None
+        return (AuthResult.USER_INACTIVE, None)
     if not verify_password_fn(password, user.password_hash):
-        return None
-    return user
+        return (AuthResult.INVALID_CREDENTIALS, None)
+    return (AuthResult.OK, user)
 
 
 def ensure_valid_role(role: str) -> UserRole:

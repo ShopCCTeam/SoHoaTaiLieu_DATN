@@ -12,9 +12,7 @@ from datetime import UTC
 
 import pytest
 
-# Import model để verify nó compile được
-from app.models.refresh_session import RefreshSession  # noqa: F401
-from app.models.user import User
+from app.models.user import User  # noqa: F401 — no PG types, OK on SQLite
 
 
 def test_user_tablename() -> None:
@@ -23,7 +21,12 @@ def test_user_tablename() -> None:
 
 
 def test_refresh_session_tablename() -> None:
-    """Không cần Postgres."""
+    """Verify RefreshSession.__tablename__ = 'refresh_sessions'.
+
+    Import inline để tránh SQLite conftest tạo bảng INET/UUID khi collection.
+    """
+    from app.models.refresh_session import RefreshSession
+
     assert RefreshSession.__tablename__ == "refresh_sessions"
 
 
@@ -36,8 +39,6 @@ async def test_refresh_session_has_required_columns() -> None:
     from app.db.base import Base
     from app.models.user import User
     from app.modules.auth.security import hash_password
-
-    # Model tests dùng PG
     from tests.conftest import get_postgres_test_engine
 
     engine = get_postgres_test_engine()
@@ -46,7 +47,6 @@ async def test_refresh_session_has_required_columns() -> None:
 
     factory = engine.session_factory
     async with factory() as session:
-        # Tạo user trước (FK)
         user = User(
             id=str(uuid.uuid4()),
             email="model_test@example.edu.vn",
@@ -58,7 +58,8 @@ async def test_refresh_session_has_required_columns() -> None:
         session.add(user)
         await session.commit()
 
-        # Tạo session
+        from app.models.refresh_session import RefreshSession
+
         rs = RefreshSession(
             id=uuid.uuid4(),
             user_id=user.id,
@@ -105,6 +106,8 @@ async def test_refresh_session_ip_address_inet() -> None:
         )
         session.add(user)
         await session.commit()
+
+        from app.models.refresh_session import RefreshSession
 
         rs = RefreshSession(
             id=uuid.uuid4(),
