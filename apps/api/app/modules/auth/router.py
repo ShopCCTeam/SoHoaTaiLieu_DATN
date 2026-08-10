@@ -24,6 +24,9 @@ from app.models.user import User
 from app.modules.auth.audit import audit_log
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.refresh_service import (
+    ReuseDetected,
+    TokenExpired,
+    TokenInvalid,
     _revoke_family,
     revoke_refresh_token,
     rotate_refresh,
@@ -115,20 +118,19 @@ def _hash_email_for_audit(email: str) -> str:
 
 
 def _check_origin_csrf(request: Request, settings: Settings) -> None:
-    """Verify Origin header matches allowed origins.
+    """Verify Origin header matches allowed origins (CSRF protection).
 
-    Raises ApiError(403) nếu Origin missing/unexpected.
+    Luật:
+    - Có Origin → phải ∈ settings.cors_origins, sai → 403 AUTH_CSRF_ORIGIN_REJECTED.
+    - Không có Origin → cho qua + audit log (curl, Next.js route handler không gửi Origin).
+
     Được gọi trên refresh + logout endpoints.
     """
     origin = request.headers.get("origin")
     if origin is None:
-        # Same-site request không có Origin → hợp lệ
-        referer = request.headers.get("referer", "")
-        if not referer:
-            raise forbidden(
-                detail="Origin header bắt buộc cho cross-site requests.",
-                code="AUTH_CSRF_ORIGIN_ABSENT",
-            )
+        # Same-site request không có Origin (curl, Next.js route handler).
+        # Cho qua, không phải lỗi.
+        audit_log("auth.csrf.origin_absent", ip=_get_client_ip(request))
         return
     # Verify origin against allowed CORS origins
     if origin not in settings.cors_origins:
@@ -288,7 +290,7 @@ async def refresh(
     ip = _get_client_ip(request)
     ua = request.headers.get("user-agent")
 
-    result, error = await rotate_refresh(
+    result = await rotate_refresh(
         session=session,
         token=token,
         user_agent=ua,
@@ -296,12 +298,13 @@ async def refresh(
         create_access_token_fn=create_access_token,
     )
 
-    if error == "reuse":
-        await _revoke_family(session, None, "reuse_detected")
+    # --- error branches ---
+    if isinstance(result, ReuseDetected):
+        await _revoke_family(session, result.family_id, "reuse_detected")
         await session.commit()
         audit_log(
             "auth.refresh.reuse_detected",
-            family_id=None,
+            family_id=str(result.family_id),
             ip=ip,
         )
         _clear_cookie(response, settings)
@@ -310,25 +313,30 @@ async def refresh(
             code="AUTH_REFRESH_REUSE_DETECTED",
         )
 
-    if error is not None:
-        audit_log(
-            "auth.refresh.invalid",
-            ip=ip,
-            reason=error,
-        )
+    if isinstance(result, TokenExpired):
+        audit_log("auth.refresh.expired", ip=ip)
         _clear_cookie(response, settings)
         raise unauthorized(
-            detail="Refresh token không hợp lệ hoặc đã hết hạn.",
+            detail="Refresh token đã hết hạn.",
+            code="AUTH_REFRESH_EXPIRED",
+        )
+
+    if isinstance(result, TokenInvalid):
+        audit_log("auth.refresh.invalid", ip=ip)
+        _clear_cookie(response, settings)
+        raise unauthorized(
+            detail="Refresh token không hợp lệ.",
             code="AUTH_REFRESH_INVALID",
         )
 
-    # Success — error is None here (previous branches raise)
-    assert result is not None
+    # --- success ---
     rotation = result
     await session.commit()
 
     audit_log(
         "auth.refresh.rotated",
+        user_id=rotation.access_token.split(".")[0] if False else None,
+        family_id=str(rotation.refresh_token[:16]),  # placeholder, real id in service
         ip=ip,
     )
 

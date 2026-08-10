@@ -6,9 +6,9 @@ Map với bảng `refresh_sessions` trong migration 0002.
 """
 from __future__ import annotations
 
-from datetime import datetime
-from typing import TYPE_CHECKING, Any
 import uuid
+from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import INET, UUID
@@ -38,12 +38,12 @@ class RefreshSession(Base):
 
     __tablename__ = "refresh_sessions"
 
-    # id: Python-side default for SQLite, server default for PG.
+    # id: Python-side default for both SQLite and PostgreSQL.
+    # Do NOT use server_default=func.gen_random_uuid() — SQLite has no such function.
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
     )
     user_id: Mapped[str] = mapped_column(
         String(36),
@@ -55,7 +55,6 @@ class RefreshSession(Base):
         UUID(as_uuid=True),
         nullable=False,
         default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
         index=True,
     )
     token_hash: Mapped[str] = mapped_column(

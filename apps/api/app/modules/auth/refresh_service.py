@@ -46,6 +46,26 @@ class ReuseDetected:
     family_id: uuid.UUID
 
 
+@dataclass
+class TokenExpired:
+    """Token đã hết hạn."""
+
+    pass
+
+
+@dataclass
+class TokenInvalid:
+    """Token không hợp lệ (không tìm thấy, revoked, user inactive)."""
+
+    pass
+
+
+# Result type alias
+RotationOutcome = (
+    RotationResult | ReuseDetected | TokenExpired | TokenInvalid
+)
+
+
 # ---- helpers (không commit) ----
 
 async def _get_session_by_hash(
@@ -118,14 +138,14 @@ async def rotate_refresh(
     user_agent: str | None,
     ip_address: str | None,
     create_access_token_fn: Callable[..., str],
-) -> tuple[RotationResult, None] | tuple[None, str]:
+) -> RotationOutcome:
     """Rotate refresh token.
 
     Returns:
-        (RotationResult, None) — success
-        (None, "reuse") — reuse detected, family revoked
-        (None, "expired") — token expired
-        (None, "invalid") — token not found / user inactive
+        RotationResult — success
+        ReuseDetected — token was already revoked (reuse attack)
+        TokenExpired — token has expired
+        TokenInvalid — token not found or user inactive
     """
     settings = get_settings()
     token_hash = hash_token(token)
@@ -133,28 +153,42 @@ async def rotate_refresh(
     # Step 1: lookup by hash — check for reuse
     old_session, was_revoked = await _get_session_by_hash(session, token_hash)
     if old_session is None:
-        return (None, "invalid")
+        return TokenInvalid()
     if was_revoked:
-        # Reuse detected: token was valid before but has been revoked
-        return (None, "reuse")
+        return ReuseDetected(family_id=old_session.family_id)
 
     # Step 2: check expiry
-    now = datetime.now(UTC)
-    if old_session.expires_at.replace(tzinfo=UTC) < now:
-        return (None, "expired")
+    # SQLite stores naive datetimes; PostgreSQL stores UTC-aware datetimes.
+    # Normalize to naive UTC for consistent comparison.
+    expires_at = old_session.expires_at
+    if expires_at.tzinfo is not None:
+        expires_at = expires_at.replace(tzinfo=None)
+    now_naive = datetime.now(UTC).replace(tzinfo=None)
+    if expires_at < now_naive:
+        return TokenExpired()
 
     # Step 3: lock FOR UPDATE
     locked = await _lock_session_for_update(session, old_session.id)
     if locked is None:
-        return (None, "invalid")
+        return TokenInvalid()
 
-    # Step 4: generate new token + family
+    # Step 4: generate new token (same family for reuse detection)
     new_token = _generate_opaque_token()
     new_token_hash = hash_token(new_token)
-    new_family_id = uuid.uuid4()
+    # Family-based revocation: new session MUST share family_id with old session.
+    # If reuse is detected later, revoking the family revokes ALL tokens in the lineage.
+    family_id: uuid.UUID = locked.family_id
+
+    # Step 5: load user + check is_active BEFORE session.add — inactive user
+    # gets 401 without any session being created or flushed.
+    user = await session.get(User, locked.user_id)
+    if user is None or not user.is_active:
+        return TokenInvalid()
+
+    # Step 6: create new session (after user check so nothing is flushed on failure)
     new_session = RefreshSession(
         user_id=locked.user_id,
-        family_id=new_family_id,
+        family_id=family_id,
         token_hash=new_token_hash,
         user_agent=user_agent,
         ip_address=ip_address,
@@ -165,25 +199,17 @@ async def rotate_refresh(
     session.add(new_session)
     await session.flush()
 
-    # Step 5: revoke old session
+    # Step 7: revoke old session
     old_session.revoked_at = datetime.now(UTC)
     old_session.replaced_by_id = new_session.id
 
-    # Step 6: load user
-    user = await session.get(User, locked.user_id)
-    if user is None or not user.is_active:
-        return (None, "invalid")
-
-    # Step 7: generate access token
+    # Step 8: generate access token
     access_token = create_access_token_fn(subject=user.id, role=user.role)
 
-    return (
-        RotationResult(
-            access_token=access_token,
-            refresh_token=new_token,
-            expires_in=settings.jwt_access_token_ttl_seconds,
-        ),
-        None,
+    return RotationResult(
+        access_token=access_token,
+        refresh_token=new_token,
+        expires_in=settings.jwt_access_token_ttl_seconds,
     )
 
 

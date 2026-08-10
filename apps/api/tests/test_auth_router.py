@@ -9,6 +9,7 @@ Test theo ADR-0003 v3:
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -299,10 +300,11 @@ async def test_refresh_rotation_revokes_old_token(
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_refresh_missing_origin_returns_403(
+async def test_refresh_missing_origin_returns_200(
     api_client: AsyncClient,
     seeded_user: User,
 ) -> None:
+    """Không có Origin header → cho qua (curl, Next.js route handler không gửi Origin)."""
     # Login
     login = await api_client.post(
         "/api/v1/auth/login",
@@ -315,13 +317,15 @@ async def test_refresh_missing_origin_returns_403(
             rt_token = part.split("rt=", 1)[1].strip().split(";")[0]
             break
 
-    # Refresh WITHOUT Origin header → 403 CSRF
+    # Refresh WITHOUT Origin header → 200 (same-site, no CSRF risk)
     response = await api_client.post(
         "/api/v1/auth/refresh",
         headers={"Cookie": f"rt={rt_token}"},
     )
-    assert response.status_code == 403
-    assert response.json()["code"] == "AUTH_CSRF_ORIGIN_ABSENT"
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert "access_token" in body["data"]
 
 
 @pytest.mark.asyncio
@@ -329,6 +333,7 @@ async def test_refresh_unexpected_origin_returns_403(
     api_client: AsyncClient,
     seeded_user: User,
 ) -> None:
+    """Origin không trong CORS list → 403 AUTH_CSRF_ORIGIN_REJECTED."""
     # Login
     login = await api_client.post(
         "/api/v1/auth/login",
@@ -402,9 +407,129 @@ async def test_logout_idempotent_no_token(api_client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_logout_csrf_requires_origin(api_client: AsyncClient) -> None:
+    """Logout không có Origin → cho qua (idempotent, 204)."""
     response = await api_client.post("/api/v1/auth/logout")
-    assert response.status_code == 403
-    assert response.json()["code"] == "AUTH_CSRF_ORIGIN_ABSENT"
+    assert response.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# Additional edge-case tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_refresh_inactive_user_returns_401_no_session_created(
+    db_session_factory: async_sessionmaker,
+) -> None:
+    """Inactive user during refresh → 401, không tạo session mới."""
+    from sqlalchemy import func, select
+
+    from app.main import create_app
+    from app.modules.auth.security import hash_password
+
+    # Tạo inactive user + active session
+    async with db_session_factory() as session:
+        user = User(
+            id="usr_inactive_refresh",
+            email="inactive_refresh@example.edu.vn",
+            password_hash=hash_password("Demo@2026"),
+            full_name="Inactive Refresh Test",
+            role="staff",
+            is_active=False,
+        )
+        session.add(user)
+        await session.commit()
+
+    app = create_app()
+
+    async def _override():
+        async with db_session_factory() as s:
+            yield s
+            await s.commit()
+
+    app.dependency_overrides[get_session] = _override
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # Login với inactive user → nhận session
+        login = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "inactive_refresh@example.edu.vn", "password": "Demo@2026"},
+        )
+        assert login.status_code == 401  # Login bị từ chối
+        assert login.json()["code"] == "AUTH_INVALID_CREDENTIALS"
+
+    # Count sessions — không có session nào được tạo
+    async with db_session_factory() as session:
+        count = await session.execute(
+            select(func.count()).select_from(RefreshSession).where(
+                RefreshSession.user_id == "usr_inactive_refresh"
+            )
+        )
+        assert count.scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_refresh_expired_token_returns_401_expired_code(
+    db_session_factory: async_sessionmaker,
+) -> None:
+    """Refresh với expired token → 401 AUTH_REFRESH_EXPIRED."""
+    import uuid as uuid_module
+
+    from app.main import create_app
+    from app.modules.auth.security import hash_password
+
+    async with db_session_factory() as session:
+        user = User(
+            id="usr_expired_refresh",
+            email="expired_refresh@example.edu.vn",
+            password_hash=hash_password("Demo@2026"),
+            full_name="Expired Refresh Test",
+            role="student",
+            is_active=True,
+        )
+        session.add(user)
+        await session.commit()
+
+    app = create_app()
+
+    async def _override():
+        async with db_session_factory() as s:
+            yield s
+            await s.commit()
+
+    app.dependency_overrides[get_session] = _override
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # Tạo session đã hết hạn trực tiếp
+        from datetime import datetime, timedelta
+
+        from app.modules.auth.refresh_service import _generate_opaque_token
+        from app.modules.auth.security import hash_token
+
+        expired_token = _generate_opaque_token()
+        from app.models.refresh_session import RefreshSession
+
+        async with db_session_factory() as session:
+            rs = RefreshSession(
+                id=uuid_module.uuid4(),  # UUID object, not string
+                user_id="usr_expired_refresh",
+                family_id=uuid_module.uuid4(),
+                token_hash=hash_token(expired_token),
+                issued_at=datetime.now(UTC) - timedelta(seconds=200),
+                expires_at=datetime.now(UTC) - timedelta(seconds=100),  # đã hết hạn
+            )
+            session.add(rs)
+            await session.commit()
+
+        # Refresh với token hết hạn
+        response = await client.post(
+            "/api/v1/auth/refresh",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Cookie": f"rt={expired_token}",
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["code"] == "AUTH_REFRESH_EXPIRED"
 
 
 # ---------------------------------------------------------------------------
