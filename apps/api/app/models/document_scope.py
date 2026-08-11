@@ -2,6 +2,7 @@
 
 Reference data — seed sẵn 3 rows: PUBLIC, STUDENT_AFFAIRS, INTERNAL.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import String

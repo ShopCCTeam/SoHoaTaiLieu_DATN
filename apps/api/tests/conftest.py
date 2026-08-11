@@ -1,4 +1,5 @@
 """Pytest fixtures shared across tests."""
+
 from __future__ import annotations
 
 import os
@@ -51,6 +52,7 @@ def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
 # Engines
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="function")
 async def db_engine(tmp_path: Path):
     """SQLite async engine, tạo schema mới mỗi test.
@@ -85,9 +87,7 @@ async def pg_engine():
         # OSError bao trùm ConnectionRefusedError + socket.gaierror + TimeoutError.
         # asyncpg.InvalidCatalogNameError — sai tên DB (asyncpg không phải OSError subclass).
         await engine.dispose()
-        _skip_or_fail(
-            f"Postgres không khả dụng: {type(exc).__name__}: {exc}"
-        )
+        _skip_or_fail(f"Postgres không khả dụng: {type(exc).__name__}: {exc}")
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -121,6 +121,7 @@ def get_postgres_test_engine() -> AsyncEngine:
 # Sessions
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="function")
 async def db_session(db_engine) -> AsyncIterator[AsyncSession]:
     """Async session dùng SQLite (unit tests).
@@ -144,6 +145,7 @@ async def db_session_factory(db_engine) -> async_sessionmaker[AsyncSession]:
 # ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 async def seeded_user(db_session_factory) -> User:
@@ -169,6 +171,7 @@ async def seeded_user(db_session_factory) -> User:
 # ---------------------------------------------------------------------------
 # API client
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 async def api_client(db_session_factory) -> AsyncIterator[AsyncClient]:

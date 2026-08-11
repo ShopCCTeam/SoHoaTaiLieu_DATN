@@ -4,6 +4,7 @@ Map với bảng `refresh_sessions` trong migration 0002.
 - id/family_id: dùng `default=uuid.uuid4` cho SQLite; `server_default` cho PG.
 - ip_address: dùng `_INet` TypeDecorator (String on SQLite, INET on PG).
 """
+
 from __future__ import annotations
 
 import uuid

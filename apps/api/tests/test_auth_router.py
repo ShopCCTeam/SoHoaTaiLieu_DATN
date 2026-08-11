@@ -8,6 +8,7 @@ Test theo ADR-0003 v3:
 - P0 hardening: audit log không được chứa refresh_token plaintext,
   revoke phải ghi DB (không chỉ status code).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,9 +42,11 @@ def _extract_rt_cookie(cookie_header: str) -> str | None:
             return part.split("rt=", 1)[1].strip()
     return None
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_refresh_cookie(cookies: dict[str, str]) -> str | None:
     """Extract rt cookie value from httpx cookies."""
@@ -53,6 +56,7 @@ def _extract_refresh_cookie(cookies: dict[str, str]) -> str | None:
 # ---------------------------------------------------------------------------
 # Login tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_login_success_sets_refresh_cookie(
@@ -144,6 +148,7 @@ async def test_login_inactive_user_returns_401(
 # /me tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_me_with_valid_token_returns_user(
     api_client: AsyncClient,
@@ -209,6 +214,7 @@ async def test_me_with_expired_token_returns_401(
 # ---------------------------------------------------------------------------
 # Refresh tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_refresh_returns_new_access_token(
@@ -348,6 +354,7 @@ async def test_refresh_rotation_revokes_old_token(
 # CSRF tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_refresh_missing_origin_returns_200(
     api_client: AsyncClient,
@@ -404,6 +411,7 @@ async def test_refresh_unexpected_origin_returns_403(
 # ---------------------------------------------------------------------------
 # Audit log safety — P0 hardening
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_audit_log_does_not_leak_refresh_token(
@@ -475,9 +483,9 @@ async def test_audit_log_does_not_leak_refresh_token(
 
     # (2) Parse token MỚI từ Set-Cookie response — rotation thật sự xảy ra.
     new_token = _extract_rt_cookie(response.headers.get("set-cookie", ""))
-    assert new_token is not None, (
-        f"refresh response thiếu rt cookie: {response.headers.get('set-cookie', '')!r}"
-    )
+    assert (
+        new_token is not None
+    ), f"refresh response thiếu rt cookie: {response.headers.get('set-cookie', '')!r}"
     assert new_token != rt_token, (
         "Rotation không xảy ra — test không có ý nghĩa (test cũ leak secret "
         "chỉ chạy khi rotation xảy ra)."
@@ -512,6 +520,7 @@ async def test_audit_log_does_not_leak_refresh_token(
 # ---------------------------------------------------------------------------
 # Logout tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_logout_revokes_token_and_clears_cookie(
@@ -581,6 +590,7 @@ async def test_logout_csrf_requires_origin(api_client: AsyncClient) -> None:
 # Additional edge-case tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_refresh_inactive_user_returns_401_no_session_created(
     api_client: AsyncClient,
@@ -633,9 +643,7 @@ async def test_refresh_inactive_user_returns_401_no_session_created(
             .where(RefreshSession.user_id == "usr_inactive_refresh")
         )
     before_count = before.scalar_one()
-    assert before_count == 1, (
-        f"Login phải tạo 1 session, hiện có {before_count}"
-    )
+    assert before_count == 1, f"Login phải tạo 1 session, hiện có {before_count}"
 
     # Refresh → 401 AUTH_REFRESH_INVALID (inactive user ở refresh)
     response = await api_client.post(
@@ -731,6 +739,7 @@ async def test_refresh_expired_token_returns_401_expired_code(
 # Login sets refresh session in DB
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_login_creates_refresh_session_in_db(
     db_session_factory: async_sessionmaker,
@@ -770,9 +779,7 @@ async def test_login_creates_refresh_session_in_db(
 
     # Verify refresh session was created
     async with db_session_factory() as session:
-        stmt = select(RefreshSession).where(
-            RefreshSession.user_id == "usr_login_session"
-        )
+        stmt = select(RefreshSession).where(RefreshSession.user_id == "usr_login_session")
         sessions = (await session.execute(stmt)).scalars().all()
         assert len(sessions) == 1
         assert sessions[0].user_id == "usr_login_session"
@@ -783,6 +790,7 @@ async def test_login_creates_refresh_session_in_db(
 # ---------------------------------------------------------------------------
 # revoke_all_user_sessions — Phase 5 P0 coverage
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_revoke_all_user_sessions_returns_count(
@@ -797,9 +805,7 @@ async def test_revoke_all_user_sessions_returns_count(
 
     # Case 1: user không có session → return 0
     async with db_session_factory() as session:
-        count = await revoke_all_user_sessions(
-            session, "usr_no_sessions", reason="password_change"
-        )
+        count = await revoke_all_user_sessions(session, "usr_no_sessions", reason="password_change")
         await session.commit()
     assert count == 0
 
@@ -841,17 +847,13 @@ async def test_revoke_all_user_sessions_returns_count(
         await session.commit()
 
     async with db_session_factory() as session:
-        count = await revoke_all_user_sessions(
-            session, user_id, reason="password_change"
-        )
+        count = await revoke_all_user_sessions(session, user_id, reason="password_change")
         await session.commit()
     assert count == 3, f"expected 3 revoked, got {count}"
 
     # Gọi lần 2 → tất cả đã revoked → return 0
     async with db_session_factory() as session:
-        count_2 = await revoke_all_user_sessions(
-            session, user_id, reason="password_change"
-        )
+        count_2 = await revoke_all_user_sessions(session, user_id, reason="password_change")
         await session.commit()
     assert count_2 == 0, f"lần 2 phải return 0, got {count_2}"
 
@@ -859,6 +861,7 @@ async def test_revoke_all_user_sessions_returns_count(
 # ---------------------------------------------------------------------------
 # P1-b: _parse_ip unit tests
 # ---------------------------------------------------------------------------
+
 
 def test_parse_ip_valid_ipv4(monkeypatch: pytest.MonkeyPatch) -> None:
     """IPv4 hợp lệ → trả về đúng giá trị."""
@@ -898,6 +901,7 @@ def test_parse_ip_xff_valid_with_trust(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_parse_ip_xff_ignored_without_trust(monkeypatch: pytest.MonkeyPatch) -> None:
     """trust_proxy_headers=False → XFF bị bỏ qua, dùng client.host."""
     from app.core.config import get_settings
+
     get_settings.cache_clear()
     monkeypatch.setenv("TRUST_PROXY_HEADERS", "false")
     get_settings.cache_clear()
@@ -926,6 +930,7 @@ def test_parse_ip_xff_invalid_with_trust_returns_none(
 ) -> None:
     """XFF không hợp lệ + trust_proxy_headers=True → trả về None."""
     from app.core.config import get_settings
+
     get_settings.cache_clear()
     monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
     get_settings.cache_clear()

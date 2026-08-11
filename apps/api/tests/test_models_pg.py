@@ -8,6 +8,7 @@ Trong CI: fail nếu Postgres không khả dụng (fixture `pg_engine` dùng
 `_skip_or_fail` trong `conftest.py`).
 Ngoài CI (dev không có Docker stack): skip.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -105,9 +106,7 @@ async def test_refresh_session_inet_roundtrip_on_postgres(
 
     # Query lại qua IP filter — INET support network comparison
     async with factory() as session:
-        stmt = select(RefreshSession).where(
-            RefreshSession.id.in_([v4_id, v6_id])
-        )
+        stmt = select(RefreshSession).where(RefreshSession.id.in_([v4_id, v6_id]))
         loaded = (await session.execute(stmt)).scalars().all()
         assert len(loaded) == 2
         # Gía trị load về còn nguyên — verify INET không bị PG tự động

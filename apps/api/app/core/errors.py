@@ -96,6 +96,7 @@ class ApiError(Exception):
 
 # ---- Convenience builders ----
 
+
 def unauthorized(
     detail: str | None = None,
     request_id: str = "",
@@ -190,6 +191,7 @@ def internal_error(request_id: str) -> ApiError:
 
 # ---- Handlers ----
 
+
 def _problem_response(problem: ProblemDetail) -> JSONResponse:
     return JSONResponse(
         status_code=problem.status,
@@ -225,8 +227,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         request_id = _request_id_from(request)
         errors = [
-            {"field": ".".join(str(p) for p in e["loc"]), "message": e["msg"]}
-            for e in exc.errors()
+            {"field": ".".join(str(p) for p in e["loc"]), "message": e["msg"]} for e in exc.errors()
         ]
         err = validation_error(errors, request_id)
         return _problem_response(err.to_problem())

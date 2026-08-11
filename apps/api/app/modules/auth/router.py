@@ -6,6 +6,7 @@ D11: Origin-CSRF check on refresh/logout.
 D12: Structured audit events.
 D13: Logout idempotent.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -52,6 +53,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _envelope(data: Any) -> dict[str, Any]:
     """Standard success envelope `{success, data}`."""
@@ -196,6 +198,7 @@ async def _create_session(
 # Routes
 # ---------------------------------------------------------------------------
 
+
 @router.post(
     "/login",
     response_model=None,
@@ -246,9 +249,7 @@ async def login(
     # Success: create JWT + refresh session
     assert user is not None, "authenticate returned OK but user is None"
     access_token = create_access_token(subject=user.id, role=user.role)
-    refresh_token, max_age = await _create_session(
-        session, user, request, settings
-    )
+    refresh_token, max_age = await _create_session(session, user, request, settings)
     await session.commit()
 
     user_public = UserPublic.model_validate(user)
@@ -406,6 +407,4 @@ async def me(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Trả về user object của Bearer token."""
-    return _envelope(
-        MeResponse(user=UserPublic.model_validate(current_user)).model_dump()
-    )
+    return _envelope(MeResponse(user=UserPublic.model_validate(current_user)).model_dump())

@@ -7,6 +7,7 @@ Chạy:
 Idempotent: chạy không có --reset nhiều lần không tạo duplicate.
 Email từ hằng số (không hardcode @ctsv.edu.vn).
 """
+
 from __future__ import annotations
 
 import argparse

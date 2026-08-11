@@ -2,6 +2,7 @@
 
 Giữ DTO (FE-facing) snake_case và DB enum uppercase cho khớp PostgreSQL convention.
 """
+
 from __future__ import annotations
 
 from enum import StrEnum

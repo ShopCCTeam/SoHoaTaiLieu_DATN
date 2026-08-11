@@ -1,4 +1,5 @@
 """FastAPI dependencies cho auth — Bearer token + current user lookup."""
+
 from __future__ import annotations
 
 import jwt

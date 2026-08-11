@@ -12,6 +12,7 @@ Usage pattern:
         raise unauthorized(...)
     access_token, new_token = result
 """
+
 from __future__ import annotations
 
 import secrets
@@ -68,12 +69,11 @@ class TokenInvalid:
 
 
 # Result type alias
-RotationOutcome = (
-    RotationResult | ReuseDetected | TokenExpired | TokenInvalid
-)
+RotationOutcome = RotationResult | ReuseDetected | TokenExpired | TokenInvalid
 
 
 # ---- helpers (không commit) ----
+
 
 async def _get_session_by_hash(
     session: AsyncSession,
@@ -139,6 +139,7 @@ def _generate_opaque_token() -> str:
 
 # ---- main rotation service (không commit) ----
 
+
 async def rotate_refresh(
     session: AsyncSession,
     token: str,
@@ -200,8 +201,7 @@ async def rotate_refresh(
         user_agent=user_agent,
         ip_address=ip_address,
         issued_at=datetime.now(UTC),
-        expires_at=datetime.now(UTC)
-        + timedelta(seconds=settings.jwt_refresh_token_ttl_seconds),
+        expires_at=datetime.now(UTC) + timedelta(seconds=settings.jwt_refresh_token_ttl_seconds),
     )
     session.add(new_session)
     await session.flush()

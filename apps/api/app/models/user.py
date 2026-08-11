@@ -3,6 +3,7 @@
 Map 1-1 với OpenAPI `User` schema (id, email, full_name, role, department).
 Bổ sung field DB-only: password_hash, is_active, created_at, updated_at.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

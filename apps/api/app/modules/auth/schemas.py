@@ -2,6 +2,7 @@
 
 Field name = snake_case (match OpenAPI convention, xem `docs/api/openapi.yaml`).
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field

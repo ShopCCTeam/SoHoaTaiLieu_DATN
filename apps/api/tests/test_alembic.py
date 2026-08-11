@@ -6,6 +6,7 @@ Unit: chỉ verify revision chain tồn tại.
 Local: pytest SKIP các test cần Postgres.
 CI: chạy với postgres service — pytest.fail nếu không có.
 """
+
 from __future__ import annotations
 
 import os

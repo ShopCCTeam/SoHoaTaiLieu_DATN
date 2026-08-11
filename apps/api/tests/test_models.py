@@ -13,6 +13,7 @@ Chú ý về INET:
 CI: chạy local (SQLite) cho test_models; PG roundtrip ở test_models_pg —
 fail nếu Postgres không có.
 """
+
 from __future__ import annotations
 
 import uuid

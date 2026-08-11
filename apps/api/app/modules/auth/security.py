@@ -3,6 +3,7 @@
 - `hash_password` / `verify_password`: argon2id (OWASP 2024).
 - `create_access_token` / `decode_access_token`: HS256 JWT, TTL configurable.
 """
+
 from __future__ import annotations
 
 import hashlib

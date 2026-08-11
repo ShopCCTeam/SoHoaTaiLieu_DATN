@@ -110,9 +110,7 @@ def _generate_unique_id(route: APIRoute) -> str:
     Format: <method>_<path>, dùng để client/server dễ reference.
     """
     method = route.methods.copy().pop().lower()
-    clean_path = (
-        route.path.replace("/", "_").replace("{", "").replace("}", "").strip("_")
-    )
+    clean_path = route.path.replace("/", "_").replace("{", "").replace("}", "").strip("_")
     return f"{method}_{clean_path}"
 
 

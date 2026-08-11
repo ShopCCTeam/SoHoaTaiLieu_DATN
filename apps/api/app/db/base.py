@@ -2,6 +2,7 @@
 
 Single source of truth — Alembic tự động scan `Base.metadata` để generate migrations.
 """
+
 from __future__ import annotations
 
 from sqlalchemy.orm import DeclarativeBase

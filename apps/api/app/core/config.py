@@ -6,6 +6,7 @@ Quy tắc:
   qua secret manager (KHÔNG commit .env).
 - validate_production() fail-closed: reject deployment nếu có config yếu.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache

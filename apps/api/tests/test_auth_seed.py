@@ -1,4 +1,5 @@
 """Test cho seed script — verify 3 demo users và --reset."""
+
 from __future__ import annotations
 
 import pytest

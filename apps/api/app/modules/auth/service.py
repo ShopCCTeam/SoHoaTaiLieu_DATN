@@ -1,4 +1,5 @@
 """Auth service — business logic tách khỏi HTTP layer."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

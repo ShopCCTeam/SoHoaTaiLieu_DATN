@@ -3,6 +3,7 @@
 Đọc connection URL từ `app.core.config.get_settings().postgres_url`.
 Sync wrapper chạy migrations qua `connection.run_sync()`.
 """
+
 from __future__ import annotations
 
 import asyncio
