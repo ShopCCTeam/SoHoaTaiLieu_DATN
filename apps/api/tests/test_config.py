@@ -101,11 +101,16 @@ def test_validate_production_staging_jwt_short_rejected() -> None:
     assert "32" in jwt_issues[0]
 
 
-def test_validate_production_staging_pg_dev_default_rejected() -> None:
+def test_validate_production_staging_pg_dev_default_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Staging với postgres_password dev default: phải bị reject."""
+    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+    get_settings.cache_clear()
     settings = Settings(
         app_env="staging",  # type: ignore[arg-type]
         jwt_secret="a-strong-secret-thats-at-least-32-chars!",  # type: ignore[arg-type]
+        postgres_password="ctsv_dev_password",  # type: ignore[arg-type]
     )
     issues = settings.validate_production()
     pg_issues = [i for i in issues if "POSTGRES_PASSWORD" in i]
