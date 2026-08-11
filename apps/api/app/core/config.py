@@ -82,6 +82,14 @@ class Settings(BaseSettings):
     embedding_api_url: str = "http://localhost:11434/api/embeddings"
     embedding_model_name: str = "bge-m3"
 
+    # ---- LLM Chatbot ----
+    llm_provider: Literal["ollama", "mock"] = "mock"
+    llm_ollama_base_url: str = "http://localhost:11434"
+    llm_ollama_model_name: str = "qwen2.5:8b"
+    llm_temperature: float = 0.7
+    llm_max_tokens: int = 1000
+    llm_timeout_seconds: int = 30
+
     # ---- Derived URL ----
     @property
     def postgres_url(self) -> str:

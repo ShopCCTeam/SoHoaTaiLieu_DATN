@@ -33,10 +33,10 @@ export async function apiClient<T>(
   const { token, headers, ...customConfig } = options;
 
   // In Next.js mock mode, if route starts with /api, call local Next.js route handler
-  const url =
-    IS_MOCK && endpoint.startsWith("/")
-      ? `/api${endpoint}`
-      : `${BASE_URL}${endpoint}`;
+  const baseUrlClean = BASE_URL.replace(/\/+$/, "");
+  const endpointClean = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const url = IS_MOCK ? `/api${endpointClean}` : `${baseUrlClean}${endpointClean}`;
+
 
   const defaultHeaders: Record<string, string> = {
     "Content-Type": "application/json",

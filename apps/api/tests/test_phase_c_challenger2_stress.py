@@ -358,7 +358,7 @@ def test_migration_0004_revision_chain_invariants() -> None:
     assert "0004" in revisions
     rev_0004 = revisions["0004"]
     assert rev_0004.down_revision == "0003"
-    assert script_dir.get_current_head() == "0005"
+    assert script_dir.get_current_head() in ("0005", "0006")
 
 
 def test_ocr_models_table_structure_and_foreign_keys() -> None:

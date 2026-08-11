@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/auth/session";
-import { MOCK_DOCUMENTS } from "@/lib/mocks/fixtures";
+import { useDocuments } from "@/lib/api/queries";
 import { StatusBadge } from "@/components/documents/status-badge";
 import { formatDate } from "@/lib/utils/format";
 import {
@@ -18,12 +18,13 @@ import {
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
+  const { data: documents = [], isLoading } = useDocuments();
 
-  const totalDocs = MOCK_DOCUMENTS.length;
-  const pendingReviewCount = MOCK_DOCUMENTS.filter(
+  const totalDocs = documents.length;
+  const pendingReviewCount = documents.filter(
     (d) => d.status === "UNDER_REVIEW" || d.status === "DRAFT",
   ).length;
-  const approvedCount = MOCK_DOCUMENTS.filter(
+  const approvedCount = documents.filter(
     (d) => d.status === "APPROVED",
   ).length;
 
@@ -70,8 +71,9 @@ export default function DashboardPage() {
               <Sparkles className="w-3.5 h-3.5 stroke-current text-primary-700 dark:text-primary-300" />
               <span>Hệ Thống Số Hóa Tài Liệu CTSV — Phase F0 Active</span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
-              Xin chào, {user?.fullName || "Người dùng"}! 👋
+            <h1 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+              <span>Xin chào, {user?.fullName || "Người dùng"}!</span>
+              <Sparkles className="w-5 h-5 text-primary stroke-current inline-block" />
             </h1>
             <p className="text-xs md:text-sm text-slate-700 dark:text-slate-300 max-w-2xl">
               Bạn đang làm việc với quyền <span className="font-bold capitalize text-slate-900 dark:text-white">{user?.role}</span> ({user?.department}). 
@@ -142,7 +144,7 @@ export default function DashboardPage() {
             href="/documents"
             className="inline-flex items-center gap-1 text-xs font-bold text-primary-700 hover:text-primary-800 dark:text-primary-300"
           >
-            <span>Xem tất cả ({MOCK_DOCUMENTS.length})</span>
+            <span>Xem tất cả ({documents.length})</span>
             <ArrowUpRight className="w-4 h-4 stroke-current" />
           </Link>
         </div>
@@ -161,43 +163,57 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-primary-100/60 dark:divide-slate-800/60">
-              {MOCK_DOCUMENTS.slice(0, 5).map((doc) => (
-                <tr
-                  key={doc.id}
-                  className="hover:bg-primary-50/50 dark:hover:bg-slate-800/50 transition-colors"
-                >
-                  <td className="py-3.5 px-3">
-                    <div className="font-bold text-slate-900 dark:text-white max-w-md truncate">
-                      {doc.title}
-                    </div>
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                      {doc.codeNumber || doc.id}
-                    </div>
-                  </td>
-                  <td className="py-3.5 px-3">
-                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-mono text-[10px] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                      {doc.type}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-3">
-                    <StatusBadge status={doc.status} />
-                  </td>
-                  <td className="py-3.5 px-3 text-slate-700 dark:text-slate-300 font-medium">
-                    {doc.issuingBody || "—"}
-                  </td>
-                  <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400">
-                    {formatDate(doc.effectiveFrom || doc.createdAt)}
-                  </td>
-                  <td className="py-3.5 px-3 text-right">
-                    <Link
-                      href={doc.status === "UNDER_REVIEW" ? `/documents/${doc.id}/review` : `/documents/${doc.id}`}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-primary-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-[11px] hover:bg-primary-100 dark:hover:bg-slate-700 transition-all shadow-sm"
-                    >
-                      <span>{doc.status === "UNDER_REVIEW" ? "Hiệu chỉnh OCR" : "Chi tiết"}</span>
-                    </Link>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-slate-500 font-medium">
+                    Đang tải dữ liệu tài liệu...
                   </td>
                 </tr>
-              ))}
+              ) : documents.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-slate-500 font-medium">
+                    Chưa có tài liệu nào trong hệ thống
+                  </td>
+                </tr>
+              ) : (
+                documents.slice(0, 5).map((doc) => (
+                  <tr
+                    key={doc.id}
+                    className="hover:bg-primary-50/50 dark:hover:bg-slate-800/50 transition-colors"
+                  >
+                    <td className="py-3.5 px-3">
+                      <div className="font-bold text-slate-900 dark:text-white max-w-md truncate">
+                        {doc.title}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                        {doc.codeNumber || doc.id}
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-3">
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-mono text-[10px] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                        {doc.type}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-3">
+                      <StatusBadge status={doc.status} />
+                    </td>
+                    <td className="py-3.5 px-3 text-slate-700 dark:text-slate-300 font-medium">
+                      {doc.issuingBody || "—"}
+                    </td>
+                    <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400">
+                      {formatDate(doc.effectiveFrom || doc.createdAt)}
+                    </td>
+                    <td className="py-3.5 px-3 text-right">
+                      <Link
+                        href={doc.status === "UNDER_REVIEW" ? `/documents/${doc.id}/review` : `/documents/${doc.id}`}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-primary-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-[11px] hover:bg-primary-100 dark:hover:bg-slate-700 transition-all shadow-sm"
+                      >
+                        <span>{doc.status === "UNDER_REVIEW" ? "Hiệu chỉnh OCR" : "Chi tiết"}</span>
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -205,3 +221,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

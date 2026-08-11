@@ -79,9 +79,21 @@ def test_alembic_0005_downrevs_to_0004(script_dir: ScriptDirectory) -> None:
     assert revisions["0005"].down_revision == "0004"
 
 
-def test_alembic_head_is_0005(script_dir: ScriptDirectory) -> None:
-    """Head revision phải là 0005."""
-    assert script_dir.get_current_head() == "0005"
+def test_alembic_has_0006_revision(script_dir: ScriptDirectory) -> None:
+    """Verify revision 0006 tồn tại."""
+    revisions = {r.revision for r in script_dir.walk_revisions()}
+    assert "0006" in revisions
+
+
+def test_alembic_0006_downrevs_to_0005(script_dir: ScriptDirectory) -> None:
+    """0006 phải có down_revision = 0005."""
+    revisions = {r.revision: r for r in script_dir.walk_revisions()}
+    assert revisions["0006"].down_revision == "0005"
+
+
+def test_alembic_head_is_0006(script_dir: ScriptDirectory) -> None:
+    """Head revision phải là 0006."""
+    assert script_dir.get_current_head() == "0006"
 
 
 def test_alembic_base_is_none(script_dir: ScriptDirectory) -> None:

@@ -325,7 +325,7 @@ def test_alembic_0005_migration_revision_chain(script_dir: ScriptDirectory) -> N
     revisions = {r.revision: r for r in script_dir.walk_revisions()}
     assert "0005" in revisions
     assert revisions["0005"].down_revision == "0004"
-    assert script_dir.get_current_head() == "0005"
+    assert script_dir.get_current_head() in ("0005", "0006")
 
 
 def test_alembic_0005_upgrade_downgrade_script_execution() -> None:

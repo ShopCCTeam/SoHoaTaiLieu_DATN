@@ -17,6 +17,7 @@ from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestIdMiddleware
 from app.modules.auth.router import router as auth_router
+from app.modules.chat.router import router as chat_router
 from app.modules.documents.router import router as documents_router
 from app.modules.jobs.router import router as jobs_router
 from app.modules.search.router import router as search_router
@@ -93,6 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ---- Routers ----
     # Tất cả domain routes đi qua api_prefix để dễ version sau này.
     app.include_router(auth_router, prefix=settings.api_prefix)
+    app.include_router(chat_router, prefix=settings.api_prefix)
     app.include_router(documents_router, prefix=settings.api_prefix)
     app.include_router(jobs_router, prefix=settings.api_prefix)
     app.include_router(search_router, prefix=settings.api_prefix)
