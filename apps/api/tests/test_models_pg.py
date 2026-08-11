@@ -25,13 +25,18 @@ from app.models.user import User
 @pytest.mark.asyncio
 async def test_user_uuid_roundtrip_on_postgres(pg_engine: AsyncEngine) -> None:
     """User.id lưu + load đúng dạng UUID native (không phải CHAR(36))."""
+    from sqlalchemy import delete
+
     from app.modules.auth.security import hash_password
+
+    uid = f"usr_pg_{uuid.uuid4().hex[:12]}"
+    email = f"pg_uuid_{uuid.uuid4().hex[:8]}@example.edu.vn"
 
     factory = async_sessionmaker(bind=pg_engine, expire_on_commit=False)
     async with factory() as session:
         user = User(
-            id="usr_pg_uuid_01",
-            email="pg_uuid@example.edu.vn",
+            id=uid,
+            email=email,
             password_hash=hash_password("Demo@2026"),
             full_name="PG UUID Test",
             role="staff",
@@ -42,12 +47,17 @@ async def test_user_uuid_roundtrip_on_postgres(pg_engine: AsyncEngine) -> None:
         await session.refresh(user)
         user_id = user.id
 
-    # Re-load từ session mới — verify UUID object qua PG roundtrip
-    async with factory() as session:
-        loaded = await session.get(User, user_id)
-        assert loaded is not None
-        assert loaded.id == user_id
-        assert loaded.email == "pg_uuid@example.edu.vn"
+    try:
+        # Re-load từ session mới — verify UUID object qua PG roundtrip
+        async with factory() as session:
+            loaded = await session.get(User, user_id)
+            assert loaded is not None
+            assert loaded.id == user_id
+            assert loaded.email == email
+    finally:
+        async with factory() as session:
+            await session.execute(delete(User).where(User.id == user_id))
+            await session.commit()
 
 
 @pytest.mark.integration
@@ -61,15 +71,18 @@ async def test_refresh_session_inet_roundtrip_on_postgres(
     PG tự parse lại qua INET. Nếu column bị wrap thành String thay vì INET
     → query không match → test fail.
     """
-    from sqlalchemy import select
+    from sqlalchemy import delete, select
 
     from app.modules.auth.security import hash_password
+
+    uid = f"usr_pg_{uuid.uuid4().hex[:12]}"
+    email = f"pg_inet_{uuid.uuid4().hex[:8]}@example.edu.vn"
 
     factory = async_sessionmaker(bind=pg_engine, expire_on_commit=False)
     async with factory() as session:
         user = User(
-            id="usr_pg_inet_01",
-            email="pg_inet@example.edu.vn",
+            id=uid,
+            email=email,
             password_hash=hash_password("Demo@2026"),
             full_name="PG INet Test",
             role="staff",
@@ -104,16 +117,22 @@ async def test_refresh_session_inet_roundtrip_on_postgres(
         await session.commit()
         v6_id = rs_v6.id
 
-    # Query lại qua IP filter — INET support network comparison
-    async with factory() as session:
-        stmt = select(RefreshSession).where(RefreshSession.id.in_([v4_id, v6_id]))
-        loaded = (await session.execute(stmt)).scalars().all()
-        assert len(loaded) == 2
-        # Gía trị load về còn nguyên — verify INET không bị PG tự động
-        # convert thành dạng khác (vd CIDR / normalize) ngoài ý muốn.
-        by_id = {r.id: r for r in loaded}
-        assert str(by_id[v4_id].ip_address) == "203.0.113.42"
-        assert str(by_id[v6_id].ip_address) == "2001:db8::1"
+    try:
+        # Query lại qua IP filter — INET support network comparison
+        async with factory() as session:
+            stmt = select(RefreshSession).where(RefreshSession.id.in_([v4_id, v6_id]))
+            loaded = (await session.execute(stmt)).scalars().all()
+            assert len(loaded) == 2
+            # Gía trị load về còn nguyên — verify INET không bị PG tự động
+            # convert thành dạng khác (vd CIDR / normalize) ngoài ý muốn.
+            by_id = {r.id: r for r in loaded}
+            assert str(by_id[v4_id].ip_address) == "203.0.113.42"
+            assert str(by_id[v6_id].ip_address) == "2001:db8::1"
+    finally:
+        async with factory() as session:
+            await session.execute(delete(RefreshSession).where(RefreshSession.user_id == uid))
+            await session.execute(delete(User).where(User.id == uid))
+            await session.commit()
 
 
 @pytest.mark.integration
@@ -126,16 +145,20 @@ async def test_refresh_session_uuid_roundtrip_on_postgres(
     Verify query filter bằng UUID object (không phải string) hoạt động —
     chứng minh column thực sự là UUID chứ không phải CHAR(36) wrapper.
     """
+    from sqlalchemy import delete
+
     from app.modules.auth.security import hash_password
 
     factory = async_sessionmaker(bind=pg_engine, expire_on_commit=False)
     target_id = uuid.uuid4()
     target_family = uuid.uuid4()
+    uid = f"usr_pg_{uuid.uuid4().hex[:12]}"
+    email = f"pg_ref_uuid_{uuid.uuid4().hex[:8]}@example.edu.vn"
 
     async with factory() as session:
         user = User(
-            id="usr_pg_refresh_uuid",
-            email="pg_refresh_uuid@example.edu.vn",
+            id=uid,
+            email=email,
             password_hash=hash_password("Demo@2026"),
             full_name="PG Refresh UUID",
             role="staff",
@@ -155,10 +178,16 @@ async def test_refresh_session_uuid_roundtrip_on_postgres(
         session.add(rs)
         await session.commit()
 
-    # Query bằng UUID object — nếu column là CHAR(36) thì WHERE bằng UUID
-    # vẫn match (PG cast string→uuid), nhưng nếu column là TEXT thì fail.
-    async with factory() as session:
-        loaded = await session.get(RefreshSession, target_id)
-        assert loaded is not None
-        assert loaded.id == target_id
-        assert loaded.family_id == target_family
+    try:
+        # Query bằng UUID object — nếu column là CHAR(36) thì WHERE bằng UUID
+        # vẫn match (PG cast string→uuid), nhưng nếu column là TEXT thì fail.
+        async with factory() as session:
+            loaded = await session.get(RefreshSession, target_id)
+            assert loaded is not None
+            assert loaded.id == target_id
+            assert loaded.family_id == target_family
+    finally:
+        async with factory() as session:
+            await session.execute(delete(RefreshSession).where(RefreshSession.id == target_id))
+            await session.execute(delete(User).where(User.id == uid))
+            await session.commit()
