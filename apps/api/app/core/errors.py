@@ -36,6 +36,7 @@ class ErrorCode:
     RATE_LIMIT = "RATE_LIMIT"
     CONFLICT = "CONFLICT"
     INTERNAL = "INTERNAL"
+    FILE_SIZE_EXCEEDED = "FILE_SIZE_EXCEEDED"
     # Auth codes (Phase 1.1)
     AUTH_INVALID_CREDENTIALS = "AUTH_INVALID_CREDENTIALS"
     AUTH_USER_INACTIVE = "AUTH_USER_INACTIVE"
@@ -185,6 +186,36 @@ def internal_error(request_id: str) -> ApiError:
         code=ErrorCode.INTERNAL,
         title="Lỗi hệ thống",
         detail="Đã có lỗi xảy ra. Vui lòng thử lại sau.",
+        request_id=request_id,
+    )
+
+
+def payload_too_large(
+    detail: str = "Dung lượng tệp vượt quá giới hạn 50MB.",
+    request_id: str = "",
+    *,
+    code: str = ErrorCode.FILE_SIZE_EXCEEDED,
+) -> ApiError:
+    return ApiError(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        code=code,
+        title="Dung lượng file vượt quá giới hạn",
+        detail=detail,
+        request_id=request_id,
+    )
+
+
+def unsupported_media_type(
+    detail: str = "Chỉ hỗ trợ tệp định dạng PDF (application/pdf).",
+    request_id: str = "",
+    *,
+    code: str = ErrorCode.INVALID_FILE_TYPE,
+) -> ApiError:
+    return ApiError(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        code=code,
+        title="Định dạng file không hỗ trợ",
+        detail=detail,
         request_id=request_id,
     )
 

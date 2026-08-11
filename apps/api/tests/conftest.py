@@ -44,7 +44,13 @@ def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POSTGRES_HOST", "localhost")
     monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-must-be-32-bytes-or-more!")
     monkeypatch.setenv("JWT_ACCESS_TOKEN_TTL_SECONDS", "60")
+    monkeypatch.setenv("CELERY_TASK_ALWAYS_EAGER", "true")
+    monkeypatch.setenv("CELERY_RESULT_BACKEND", "cache+memory://")
     get_settings.cache_clear()
+
+    from app.worker.celery_app import configure_celery
+
+    configure_celery()
     yield
 
 
@@ -61,7 +67,10 @@ async def db_engine(tmp_path: Path):
     trên SQLite. Integration tests trên Postgres dùng `pg_engine` fixture.
     """
     db_path = tmp_path / "test.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{db_path}",
+        connect_args={"check_same_thread": False},
+    )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -138,8 +147,10 @@ async def db_session(db_engine) -> AsyncIterator[AsyncSession]:
 
 
 @pytest.fixture
-async def db_session_factory(db_engine) -> async_sessionmaker[AsyncSession]:
-    return async_sessionmaker(bind=db_engine, expire_on_commit=False)
+async def db_session_factory(db_engine, monkeypatch) -> async_sessionmaker[AsyncSession]:
+    factory = async_sessionmaker(bind=db_engine, expire_on_commit=False)
+    monkeypatch.setattr("app.db.session._session_factory", factory)
+    return factory
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +177,73 @@ async def seeded_user(db_session_factory) -> User:
         await session.commit()
         await session.refresh(user)
         yield user
+
+
+@pytest.fixture
+async def admin_user(db_session_factory) -> User:
+    from app.modules.auth.security import hash_password
+
+    async with db_session_factory() as session:
+        user = User(
+            id="usr_admin_01",
+            email="admin@example.edu.vn",
+            password_hash=hash_password("Demo@2026"),
+            full_name="Quản Trị Viên",
+            role="admin",
+            department="Phòng CTSV",
+            is_active=True,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        yield user
+
+
+@pytest.fixture
+async def staff_user(db_session_factory) -> User:
+    from app.modules.auth.security import hash_password
+
+    async with db_session_factory() as session:
+        user = User(
+            id="usr_staff_01",
+            email="staff@example.edu.vn",
+            password_hash=hash_password("Demo@2026"),
+            full_name="Cán Bộ CTSV",
+            role="staff",
+            department="Phòng CTSV",
+            is_active=True,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        yield user
+
+
+@pytest.fixture
+async def student_user(db_session_factory) -> User:
+    from app.modules.auth.security import hash_password
+
+    async with db_session_factory() as session:
+        user = User(
+            id="usr_student_01",
+            email="student@example.edu.vn",
+            password_hash=hash_password("Demo@2026"),
+            full_name="Sinh Viên A",
+            role="student",
+            department="Khoa CNTT",
+            is_active=True,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        yield user
+
+
+def auth_headers_for(user: User) -> dict[str, str]:
+    from app.modules.auth.security import create_access_token
+
+    token = create_access_token(subject=user.id, role=user.role)
+    return {"Authorization": f"Bearer {token}"}
 
 
 # ---------------------------------------------------------------------------

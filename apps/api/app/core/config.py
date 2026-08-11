@@ -48,6 +48,11 @@ class Settings(BaseSettings):
 
     # ---- Redis (Celery broker) ----
     redis_url: str = "redis://localhost:6379/0"
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/1"
+    celery_task_always_eager: bool = False
+    celery_task_time_limit: int = 300
+    celery_task_soft_time_limit: int = 240
 
     # ---- MinIO ----
     minio_endpoint: str = "localhost:9000"
