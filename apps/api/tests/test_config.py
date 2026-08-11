@@ -136,7 +136,7 @@ def test_validate_production_staging_all_good_empty() -> None:
     assert settings.validate_production() == []
 
 
-def test_validate_production_production_jwt_default_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_validate_production_jwt_default_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     """Production với JWT default: phải có issue JWT."""
     monkeypatch.delenv("JWT_SECRET", raising=False)
     get_settings.cache_clear()

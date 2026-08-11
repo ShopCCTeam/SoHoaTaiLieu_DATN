@@ -67,12 +67,12 @@
 - **Fix linting**: 28 ruff errors → 0 (auto-fix + thủ công). mypy 18 errors → 0.
 
 **Trạng thái sau Phase 1.1**:
-> ⚠️ **Phase 1.1 CHƯA đóng** — chỉ có bằ chứng SQLite. Postgres/Docker/CI chưa chạy.
+> ⚠️ **Phase 1.1 CHƯA đóng** — chỉ có bằng chứng SQLite. Postgres/Docker/CI chưa chạy.
 
 | Gate | Status | Evidence |
 |---|---|---|
 | Static | ✅ | ruff 0 errors + mypy 0 errors |
-| Unit | ✅ | 80 passed, 4 deselected (Postgres integration) |
+| Unit | ✅ | 84 passed, 4 deselected (Postgres integration — marker filter, không phải skip) |
 | Postgres | ⚠️ | CHƯA chạy alembic upgrade trên PG thật; máy local chưa có Docker |
 | Docker | ⚠️ | CHƯA start docker stack |
 | CI | ⚠️ | CHƯA chạy GitHub Actions với postgres service |
@@ -277,27 +277,29 @@
 
 ---
 
-## A1–A4: Quality Gate Evidence
+## QG1–QG4: Quality Gate Evidence
+
+> **Lưu ý**: Bảng này dùng mã QG1–QG4 (Quality Gate), KHÔNG trùng với A1–A5 (giai đoạn triển khai).
 
 | ID | Hạng mục | Status | Bằng chứng |
 |----|---|---|---|
-| A1 | Auth Unit Tests | ✅ | `uv run pytest tests/test_auth_router.py tests/test_auth_security.py tests/test_auth_seed.py` — **48 passed** (2026-08-10 09:18 UTC, term 810998) |
-| A2 | Auth Coverage ≥ 75% | ✅ | `pytest --cov=app.modules.auth --cov-report=term-missing` — **75.38%** overall (term 810998) |
-| A3 | Full test suite (no PG) | ✅ | `uv run pytest -v --tb=line` — **84 passed, 4 deselected** (Postgres integration deselected, not skipped) |
-| A4 | Docker Compose syntax | ⏸ Planned | Docker Desktop chưa cài trên máy; validate bằng `docker compose config` khi đã cài |
+| QG1 | Auth Unit Tests | ✅ | `uv run pytest tests/test_auth_*.py` — **48 passed** (2026-08-10 09:18 UTC) |
+| QG2 | Auth Coverage ≥ 75% | ✅ | `pytest --cov=app.modules.auth` — **75.38%** (CI gate: `--cov-fail-under=75`, global gate: `--cov-fail-under=80`) |
+| QG3 | Full test suite (no PG) | ✅ | `uv run pytest -v` — **84 passed, 4 deselected** (4 test Postgres integration bị `deselect` do marker filter `-m "not integration"`, không phải `skip`) |
+| QG4 | Docker Compose syntax | ⏸ Planned | Validate bằng `docker compose -f infra/docker/docker-compose.yml config` |
 
 ---
 
-## Phase Backend — ⏸ Đang xây dựng Phase 1.1
+## Phase Backend — ⚠️ Phase 1.1 CHƯA ĐÓNG (thiếu bằng chứng Postgres)
 
-**Đã chốt ở Phase 1.1** (2026-08-10):
+**Đã code xong ở Phase 1.1** (2026-08-10):
 - ✅ Auth: login, me, refresh (rotation), logout.
 - ✅ Argon2id hashing, RefreshSession model, origin-CSRF.
-- ✅ SQLite tests: 84 passed (Phase 1.1 implementation), 7 new config tests.
+- ✅ SQLite tests: 84 passed, 4 deselected (Postgres integration).
 - ✅ ADR-0003: `docs/adr/0003-auth-hardening.md`.
 - ⚠️ Postgres/Docker/CI: **CHƯA có bằng chứng** — chờ Docker Desktop.
 
-**Sẵn sàng Phase 2**: `/documents` GET + RBAC scope filter.
+> ⚠️ Phase 1.1 **CHƯA ĐÓNG** vì chưa chạy trên PostgreSQL thật. Chuyển sang Phase 2 chỉ khi A3 (Docker runtime) hoàn thành.
 
 **Trạng thái FE–BE contract** (đã chốt ở commit `45ab6d8`, `5ed884c`, `2888d86`):
 
