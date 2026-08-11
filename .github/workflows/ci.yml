@@ -198,16 +198,12 @@ jobs:
         run: |
           REPO_ROOT="$GITHUB_WORKSPACE"
 
-          # Generate runtime OpenAPI, normalize /api/v1 prefix (ADR D15)
-          uv run python -c "
-import json, sys
-sys.path.insert(0, '.')
-from app.main import app
-sys.stdout.write(json.dumps(app.openapi(), indent=2))
-" | jq '.paths |= with_entries(.key |= sub("^/api/v1"; ""))' \
-          > "$REPO_ROOT/runtime_openapi.json"
+          # Generate runtime OpenAPI spec from FastAPI app
+          uv run python -c 'import json,sys;sys.path.insert(0,".");from app.main import app;sys.stdout.write(json.dumps(app.openapi(),indent=2))' \
+            | jq '.paths |= with_entries(.key |= sub("^/api/v1"; ""))' \
+            > "$REPO_ROOT/runtime_openapi.json"
 
-          # Diff contract vs runtime — mount qua /repo
+          # Diff contract vs runtime — mount qua /repo (ADR D15)
           docker run --rm \
             -v "$REPO_ROOT:/repo" \
             ghcr.io/tufin/oasdiff:v1.10.11 \
