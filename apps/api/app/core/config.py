@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     ocr_default_confidence_threshold: float = 0.9
     ocr_default_engine: Literal["paddleocr", "tesseract"] = "paddleocr"
 
+    # ---- Embedding & RAG ----
+    embedding_provider: Literal["bge-m3", "mock"] = "mock"
+    embedding_api_url: str = "http://localhost:11434/api/embeddings"
+    embedding_model_name: str = "bge-m3"
+
     # ---- Derived URL ----
     @property
     def postgres_url(self) -> str:

@@ -19,6 +19,7 @@ from app.core.middleware import RequestIdMiddleware
 from app.modules.auth.router import router as auth_router
 from app.modules.documents.router import router as documents_router
 from app.modules.jobs.router import router as jobs_router
+from app.modules.search.router import router as search_router
 
 _logger = get_logger(__name__)
 
@@ -94,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router, prefix=settings.api_prefix)
     app.include_router(documents_router, prefix=settings.api_prefix)
     app.include_router(jobs_router, prefix=settings.api_prefix)
+    app.include_router(search_router, prefix=settings.api_prefix)
 
     # ---- Root ----
     @app.get("/", tags=["meta"], include_in_schema=False)

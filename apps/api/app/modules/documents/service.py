@@ -11,13 +11,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from structlog import get_logger
 
-from app.core.errors import conflict, idempotency_mismatch
+from app.core.errors import conflict, idempotency_mismatch, not_found
 from app.models.document import Document
 from app.models.document_version import DocumentVersion
 from app.models.job import Job
+from app.models.ocr_block import OCRBlock
+from app.models.ocr_page import OCRPage
 from app.models.user import User
 from app.modules.documents.dependencies import get_allowed_scopes_for_user
-from app.modules.documents.schemas import DocumentUpdateSchema
+from app.modules.documents.schemas import (
+    BatchReviewActionItem,
+    DocumentUpdateSchema,
+    OCRVersionDetailData,
+)
 from app.services.storage import get_storage_service
 from app.worker.tasks import process_document_task
 
@@ -400,6 +406,165 @@ async def trigger_version_ocr(
     return job_id
 
 
+async def get_version_ocr_detail(
+    session: AsyncSession,
+    version: DocumentVersion,
+    page_number: int | None = None,
+    requires_review: bool | None = None,
+    review_status: str | None = None,
+) -> OCRVersionDetailData:
+    """Get OCR pages and blocks for a document version."""
+    pages_stmt = (
+        select(OCRPage).where(OCRPage.version_id == version.id).order_by(OCRPage.page_number.asc())
+    )
+    pages_res = await session.execute(pages_stmt)
+    pages = pages_res.scalars().all()
+
+    blocks_stmt = select(OCRBlock).where(OCRBlock.version_id == version.id)
+    if page_number is not None:
+        blocks_stmt = blocks_stmt.where(OCRBlock.page_number == page_number)
+    if requires_review is not None:
+        blocks_stmt = blocks_stmt.where(OCRBlock.requires_review == requires_review)
+    if review_status:
+        blocks_stmt = blocks_stmt.where(OCRBlock.review_status == review_status)
+
+    blocks_stmt = blocks_stmt.order_by(OCRBlock.page_number.asc(), OCRBlock.block_index.asc())
+    blocks_res = await session.execute(blocks_stmt)
+    blocks = blocks_res.scalars().all()
+
+    total_blocks_stmt = select(func.count(OCRBlock.id)).where(OCRBlock.version_id == version.id)
+    total_blocks = (await session.execute(total_blocks_stmt)).scalar_one()
+
+    pending_reviews_stmt = select(func.count(OCRBlock.id)).where(
+        OCRBlock.version_id == version.id,
+        OCRBlock.requires_review == True,  # noqa: E712
+        OCRBlock.review_status == "PENDING",
+    )
+    pending_reviews = (await session.execute(pending_reviews_stmt)).scalar_one()
+
+    return OCRVersionDetailData(
+        version_id=version.id,
+        ocr_status=version.ocr_status,
+        requires_review=version.requires_review,
+        total_blocks=total_blocks,
+        pending_reviews=pending_reviews,
+        pages=list(pages),
+        blocks=list(blocks),
+    )
+
+
+async def review_single_ocr_block(
+    session: AsyncSession,
+    version: DocumentVersion,
+    block_id: str,
+    review_status: str,
+    text: str | None,
+    user: User,
+    request_id: str = "",
+) -> OCRBlock:
+    """Review or edit a single OCR block and re-evaluate version requires_review flag."""
+    block_stmt = select(OCRBlock).where(
+        OCRBlock.id == block_id,
+        OCRBlock.version_id == version.id,
+    )
+    block_res = await session.execute(block_stmt)
+    block = block_res.scalar_one_or_none()
+
+    if not block:
+        raise not_found(
+            detail=f"OCR block với ID '{block_id}' không tồn tại.",
+            request_id=request_id,
+        )
+
+    block.review_status = review_status
+    if text is not None or review_status == "CORRECTED":
+        if block.original_text is None:
+            block.original_text = block.text_content
+        if text is not None:
+            block.text_content = text
+            block.edited_text = text
+
+    block.reviewed_by = user.id
+    block.reviewed_at = datetime.now(UTC)
+
+    # Re-evaluate version-level requires_review
+    pending_stmt = select(func.count(OCRBlock.id)).where(
+        OCRBlock.version_id == version.id,
+        OCRBlock.requires_review == True,  # noqa: E712
+        OCRBlock.review_status == "PENDING",
+    )
+    pending_count = (await session.execute(pending_stmt)).scalar_one()
+
+    if pending_count == 0:
+        version.requires_review = False
+
+    await session.commit()
+    await session.refresh(block)
+    await session.refresh(version)
+    return block
+
+
+async def batch_review_ocr_blocks(
+    session: AsyncSession,
+    version: DocumentVersion,
+    accept_all_pending: bool,
+    actions: list[BatchReviewActionItem],
+    user: User,
+) -> tuple[int, int, bool]:
+    """Batch review OCR blocks for a document version."""
+    reviewed_count = 0
+
+    if accept_all_pending:
+        pending_blocks_stmt = select(OCRBlock).where(
+            OCRBlock.version_id == version.id,
+            OCRBlock.requires_review == True,  # noqa: E712
+            OCRBlock.review_status == "PENDING",
+        )
+        pending_res = await session.execute(pending_blocks_stmt)
+        pending_blocks = pending_res.scalars().all()
+
+        for b in pending_blocks:
+            b.review_status = "APPROVED"
+            b.reviewed_by = user.id
+            b.reviewed_at = datetime.now(UTC)
+            reviewed_count += 1
+
+    for act in actions:
+        act_stmt = select(OCRBlock).where(
+            OCRBlock.id == act.block_id,
+            OCRBlock.version_id == version.id,
+        )
+        act_res = await session.execute(act_stmt)
+        act_block = act_res.scalar_one_or_none()
+        if act_block:
+            act_block.review_status = act.review_status
+            if act.text is not None or act.review_status == "CORRECTED":
+                if act_block.original_text is None:
+                    act_block.original_text = act_block.text_content
+                if act.text is not None:
+                    act_block.text_content = act.text
+                    act_block.edited_text = act.text
+
+            act_block.reviewed_by = user.id
+            act_block.reviewed_at = datetime.now(UTC)
+            reviewed_count += 1
+
+    # Re-evaluate version-level requires_review
+    pending_stmt = select(func.count(OCRBlock.id)).where(
+        OCRBlock.version_id == version.id,
+        OCRBlock.requires_review == True,  # noqa: E712
+        OCRBlock.review_status == "PENDING",
+    )
+    remaining_pending = (await session.execute(pending_stmt)).scalar_one()
+
+    if remaining_pending == 0:
+        version.requires_review = False
+
+    await session.commit()
+    await session.refresh(version)
+    return reviewed_count, remaining_pending, version.requires_review
+
+
 async def approve_document_version(
     session: AsyncSession,
     document: Document,
@@ -412,6 +577,28 @@ async def approve_document_version(
             detail="Chỉ có thể phê duyệt phiên bản khi OCR thành công (ocr_status == 'SUCCEEDED').",
             request_id=request_id,
         )
+
+    # Invariant assertion: zero suspicious pending blocks in DB
+    pending_suspicious_stmt = select(func.count(OCRBlock.id)).where(
+        OCRBlock.version_id == version.id,
+        OCRBlock.requires_review == True,  # noqa: E712
+        OCRBlock.review_status == "PENDING",
+    )
+    pending_suspicious_count = (await session.execute(pending_suspicious_stmt)).scalar_one()
+
+    if pending_suspicious_count > 0:
+        if not version.requires_review:
+            version.requires_review = True
+            await session.commit()
+
+        raise conflict(
+            detail=(
+                f"Phiên bản còn {pending_suspicious_count} block OCR nghi ngờ chưa được kiểm tra "
+                "(requires_review=true). Vui lòng thực hiện OCR review trước khi phê duyệt."
+            ),
+            request_id=request_id,
+        )
+
     if version.requires_review:
         raise conflict(
             detail="Phiên bản yêu cầu kiểm tra OCR trước khi phê duyệt.",

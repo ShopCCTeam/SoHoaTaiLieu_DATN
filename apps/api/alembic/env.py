@@ -15,11 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
-from app.models.document_scope import DocumentScope  # noqa: F401
-
-# Tất cả ORM models phải import ở đây để Base.metadata nhận đủ schema.
-# MỚI thêm model → thêm import.
-from app.models.user import User  # noqa: F401
+from app.models import *  # noqa: F401, F403
 
 # Alembic Config object.
 config = context.config

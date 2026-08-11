@@ -39,6 +39,12 @@ from app.modules.documents.schemas import (
     DocumentVersionResponse,
     DocumentVersionSingleEnvelope,
     JobCreatedEnvelope,
+    OCRBatchReviewEnvelope,
+    OCRBatchReviewSchema,
+    OCRBlockPatchSchema,
+    OCRBlockResponse,
+    OCRBlockSingleEnvelope,
+    OCRVersionDetailEnvelope,
     UploadResponseEnvelope,
     VersionUpdateSchema,
 )
@@ -348,3 +354,109 @@ async def approve_version(
         session, doc, version, request_id=request_id
     )
     return DocumentVersionSingleEnvelope(data=DocumentVersionResponse.model_validate(approved_ver))
+
+
+@router.get("/{id}/versions/{vid}/ocr", response_model=OCRVersionDetailEnvelope)
+async def get_version_ocr_detail(
+    id: str,
+    vid: str,
+    request: Request,
+    page: int | None = Query(None, ge=1),
+    requires_review: bool | None = Query(None),
+    review_status: str | None = Query(None),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> OCRVersionDetailEnvelope:
+    """Get OCR pages and blocks for a document version."""
+    request_id = getattr(request.state, "request_id", "")
+    doc = await service.get_document_by_id(session, id)
+    if not doc:
+        raise not_found(detail=f"Tài liệu với ID '{id}' không tồn tại.", request_id=request_id)
+
+    check_document_access(doc, current_user, request_id=request_id)
+    version = await service.get_document_version_by_id(session, id, vid)
+    if not version:
+        raise not_found(detail=f"Phiên bản với ID '{vid}' không tồn tại.", request_id=request_id)
+
+    detail_data = await service.get_version_ocr_detail(
+        session,
+        version,
+        page_number=page,
+        requires_review=requires_review,
+        review_status=review_status,
+    )
+    return OCRVersionDetailEnvelope(data=detail_data)
+
+
+@router.patch("/{id}/versions/{vid}/ocr/blocks/{bid}", response_model=OCRBlockSingleEnvelope)
+async def review_single_ocr_block(
+    id: str,
+    vid: str,
+    bid: str,
+    body: OCRBlockPatchSchema,
+    request: Request,
+    current_user: User = Depends(require_staff_or_admin),
+    session: AsyncSession = Depends(get_session),
+) -> OCRBlockSingleEnvelope:
+    """Approve or correct a single OCR block."""
+    request_id = getattr(request.state, "request_id", "")
+    doc = await service.get_document_by_id(session, id)
+    if not doc:
+        raise not_found(detail=f"Tài liệu với ID '{id}' không tồn tại.", request_id=request_id)
+
+    check_document_access(doc, current_user, request_id=request_id)
+    version = await service.get_document_version_by_id(session, id, vid)
+    if not version:
+        raise not_found(detail=f"Phiên bản với ID '{vid}' không tồn tại.", request_id=request_id)
+
+    block = await service.review_single_ocr_block(
+        session,
+        version,
+        bid,
+        body.review_status,
+        body.text,
+        current_user,
+        request_id=request_id,
+    )
+    return OCRBlockSingleEnvelope(data=OCRBlockResponse.model_validate(block))
+
+
+@router.post("/{id}/versions/{vid}/ocr/batch-review", response_model=OCRBatchReviewEnvelope)
+async def batch_review_ocr(
+    id: str,
+    vid: str,
+    body: OCRBatchReviewSchema,
+    request: Request,
+    current_user: User = Depends(require_staff_or_admin),
+    session: AsyncSession = Depends(get_session),
+) -> OCRBatchReviewEnvelope:
+    """Batch review OCR blocks for a version."""
+    request_id = getattr(request.state, "request_id", "")
+    doc = await service.get_document_by_id(session, id)
+    if not doc:
+        raise not_found(detail=f"Tài liệu với ID '{id}' không tồn tại.", request_id=request_id)
+
+    check_document_access(doc, current_user, request_id=request_id)
+    version = await service.get_document_version_by_id(session, id, vid)
+    if not version:
+        raise not_found(detail=f"Phiên bản với ID '{vid}' không tồn tại.", request_id=request_id)
+
+    (
+        reviewed_count,
+        remaining_pending,
+        version_requires_review,
+    ) = await service.batch_review_ocr_blocks(
+        session,
+        version,
+        body.accept_all_pending,
+        body.actions,
+        current_user,
+    )
+
+    return OCRBatchReviewEnvelope(
+        data={
+            "reviewed_count": reviewed_count,
+            "remaining_pending_count": remaining_pending,
+            "version_requires_review": version_requires_review,
+        }
+    )

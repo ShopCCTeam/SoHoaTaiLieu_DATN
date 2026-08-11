@@ -132,3 +132,88 @@ class DocumentVersionListEnvelope(BaseModel):
 class DocumentVersionSingleEnvelope(BaseModel):
     success: Literal[True] = True
     data: DocumentVersionResponse
+
+
+class OCRBlockResponse(BaseModel):
+    id: str
+    version_id: str
+    page_id: str | None = None
+    page_number: int
+    block_index: int
+    text_content: str
+    confidence: float
+    bbox: list[float]
+    requires_review: bool
+    review_status: str
+    edited_text: str | None = None
+    original_text: str | None = None
+    job_id: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    processing_time_ms: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OCRPageResponse(BaseModel):
+    id: str
+    version_id: str
+    page_number: int
+    width: int | None = None
+    height: int | None = None
+    image_key: str | None = None
+    status: str
+    block_count: int
+    has_warnings: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OCRVersionDetailData(BaseModel):
+    version_id: str
+    ocr_status: str
+    requires_review: bool
+    total_blocks: int
+    pending_reviews: int
+    pages: list[OCRPageResponse] = Field(default_factory=list)
+    blocks: list[OCRBlockResponse] = Field(default_factory=list)
+
+
+class OCRVersionDetailEnvelope(BaseModel):
+    success: Literal[True] = True
+    data: OCRVersionDetailData
+
+
+class OCRBlockSingleEnvelope(BaseModel):
+    success: Literal[True] = True
+    data: OCRBlockResponse
+
+
+class OCRBlockPatchSchema(BaseModel):
+    review_status: Literal["APPROVED", "CORRECTED", "REJECTED"]
+    text: str | None = None
+
+
+class BatchReviewActionItem(BaseModel):
+    block_id: str
+    review_status: Literal["APPROVED", "CORRECTED", "REJECTED"]
+    text: str | None = None
+
+
+class OCRBatchReviewSchema(BaseModel):
+    accept_all_pending: bool = False
+    actions: list[BatchReviewActionItem] = Field(default_factory=list)
+
+
+class OCRBatchReviewData(BaseModel):
+    reviewed_count: int
+    remaining_pending_count: int
+    version_requires_review: bool
+
+
+class OCRBatchReviewEnvelope(BaseModel):
+    success: Literal[True] = True
+    data: OCRBatchReviewData

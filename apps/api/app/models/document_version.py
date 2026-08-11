@@ -15,6 +15,8 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.document import Document
+    from app.models.ocr_block import OCRBlock
+    from app.models.ocr_page import OCRPage
     from app.models.user import User
 
 
@@ -60,6 +62,18 @@ class DocumentVersion(Base):
     # Relationships
     document: Mapped[Document] = relationship("Document", back_populates="versions")
     creator: Mapped[User] = relationship("User", foreign_keys=[created_by])
+    ocr_pages: Mapped[list[OCRPage]] = relationship(
+        "OCRPage",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        order_by="OCRPage.page_number.asc()",
+    )
+    ocr_blocks: Mapped[list[OCRBlock]] = relationship(
+        "OCRBlock",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        order_by="(OCRBlock.page_number.asc(), OCRBlock.block_index.asc())",
+    )
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<DocumentVersion id={self.id} doc={self.document_id} v={self.version_number}>"
