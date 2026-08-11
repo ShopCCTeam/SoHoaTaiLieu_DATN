@@ -130,6 +130,13 @@ jobs:
           uv run alembic upgrade head
           uv run alembic downgrade -1
           uv run alembic upgrade head
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: ctsv_test
+          POSTGRES_USER: ctsv_test
+          POSTGRES_PASSWORD: ctsv_test
+          POSTGRES_TEST_DB: ctsv_test
 
       # ---------- Coverage: global 80% ----------
       - name: Run tests with coverage (global ≥80%)
@@ -155,7 +162,7 @@ jobs:
         run: |
           uv run pytest \
             --cov=app.modules.auth \
-            --cov-report=term-missing:app/modules/auth \
+            --cov-report=term-missing \
             --cov-report=xml:coverage-auth.xml \
             --cov-fail-under=85 \
             -v \
@@ -171,12 +178,18 @@ jobs:
 
       - name: Check skipped integration tests
         run: |
-          SKIPPED=$(uv run pytest --co -q 2>/dev/null | grep -c "\[integration\]" || echo "0")
-          if [ "$SKIPPED" -gt 0 ]; then
-            echo "::error::Có $SKIPPED test integration bị skip — kiểm tra pg_engine fixture"
+          # Gate thật: chạy pytest thật rồi parse summary output.
+          # `pytest --co -q` không hiển thị [integration] → count luôn = 0.
+          uv run pytest -v 2>&1 | tee pytest_full.log
+          # tail -5 lấy summary line: "X passed, Y skipped, Z deselected"
+          SUMMARY=$(tail -5 pytest_full.log)
+          echo "=== Pytest summary ==="
+          echo "$SUMMARY"
+          if echo "$SUMMARY" | grep -qE "[0-9]+ skipped"; then
+            echo "::error::Có test bị skip trong CI — kiểm tra pg_engine fixture"
             exit 1
           fi
-          echo "OK: 0 integration test bị skip"
+          echo "OK: Không có test bị skip"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -191,21 +204,21 @@ jobs:
           # Mount repo root để oasdiff container truy cập cả contract lẫn runtime spec.
           REPO_ROOT="$GITHUB_WORKSPACE"
 
-          # Generate runtime OpenAPI từ FastAPI
+          # Generate runtime OpenAPI từ FastAPI, ghi vào repo root
           uv run python -c "
 import json, sys
 sys.path.insert(0, '.')
 from app.main import app
 sys.stdout.write(json.dumps(app.openapi(), indent=2))
-" > /tmp/runtime_openapi.json
+" > "$REPO_ROOT/runtime_openapi.json"
 
-          # Bundle contract YAML → JSON rồi diff
+          # Diff contract vs runtime — mount qua /repo
           docker run --rm \
             -v "$REPO_ROOT:/repo" \
             ghcr.io/tufin/oasdiff:v1.10.11 \
             diff \
             /repo/docs/api/openapi.yaml \
-            /tmp/runtime_openapi.json \
+            /repo/runtime_openapi.json \
             --format json \
             --fail-on-diff \
-            --exclude-elements info,.openapi,servers,summary,description,externalDocs,security,components/securitySchemes,tags
+            --exclude-elements info,.openapi,servers,summary,description,externalDocs,tags

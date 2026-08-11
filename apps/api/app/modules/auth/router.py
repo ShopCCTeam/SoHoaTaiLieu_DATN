@@ -64,9 +64,12 @@ _TOKEN_TYPE_BEARER = "bearer"  # noqa: S105 — RFC 6750 constant
 def _parse_ip(settings: Settings, request: Request) -> str | None:
     """Extract + validate client IP for INET column.
 
-    Trả về None nếu:
-    - X-Forwarded-For được đọc nhưng trust_proxy_headers = False.
-    - Giá trị không parse được thành IPv4/IPv6 hợp lệ.
+    Fallback chain:
+    - Nếu trust_proxy_headers=True và X-Forwarded-For hợp lệ → dùng X-Forwarded-For.
+    - Nếu trust_proxy_headers=False, X-Forwarded-For vẫn được đọc nhưng bỏ qua
+      (để tránh spoofing). Luôn fall through xuống request.client.host.
+    - Cuối cùng: request.client.host → parse IPv4/IPv6 → return.
+    - Nếu không parse được: return None.
     """
     x_forwarded = request.headers.get("x-forwarded-for")
     if x_forwarded:

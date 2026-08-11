@@ -87,9 +87,9 @@ def test_alembic_upgrade_downgrade_on_postgres() -> None:
     try:
         with socket.create_connection((host, int(port)), timeout=1):
             pass
-    except (ConnectionRefusedError, socket.gaierror, TimeoutError, OSError) as exc:
-        # OSError đã cover ConnectionRefusedError + gaierror — dư tuple hiện tại
-        # nhưng giữ để tương thích nếu sau này thêm test mới.
+    except OSError as exc:
+        # OSError cover ConnectionRefusedError + socket.gaierror + TimeoutError
+        # trên mọi platform. Tuple explicit là dư — simplify.
         _skip_or_fail(f"Postgres không khả dụng tại {host}:{port}: {exc!r}")
 
     # Alembic folder ở `apps/api/alembic/` (không phải `tests/alembic/`).

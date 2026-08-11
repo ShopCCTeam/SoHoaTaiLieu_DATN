@@ -127,11 +127,8 @@ class Settings(BaseSettings):
                 issues.append(
                     "POSTGRES_PASSWORD is using default value in production."
                 )
-            if self.refresh_cookie_secure is False:
-                issues.append(
-                    "refresh_cookie_secure is False in production. "
-                    "Set REFRESH_COOKIE_SECURE=true when deploying behind HTTPS."
-                )
+            # refresh_cookie_secure: property `cookie_secure` đã ép True ở
+            # production (line 103) → nhánh này luôn false positive.
 
         return issues
 
