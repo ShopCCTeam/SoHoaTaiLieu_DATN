@@ -189,24 +189,25 @@ jobs:
           files: apps/api/coverage.xml,apps/api/coverage-auth.xml
           fail_ci_if_error: false
 
-      - name: Install jq (ADR D15 — path normalization)
-        run: |
-          # jq dùng để strip /api/v1 prefix trước khi oasdiff so sánh.
-          sudo apt-get update -qq && sudo apt-get install -y -qq jq
-
       - name: OpenAPI oasdiff (contract vs runtime)
         run: |
           REPO_ROOT="$GITHUB_WORKSPACE"
 
-          # Generate runtime OpenAPI spec from FastAPI app
-          uv run python -c 'import json,sys;sys.path.insert(0,".");from app.main import app;sys.stdout.write(json.dumps(app.openapi(),indent=2))' \
-            | jq '.paths |= with_entries(.key |= sub("^/api/v1"; ""))' \
-            > "$REPO_ROOT/runtime_openapi.json"
+          # Generate runtime OpenAPI spec from FastAPI app and normalize /api/v1 prefix
+          uv run python -c "
+          import json, sys
+          sys.path.insert(0, '.')
+          from app.main import app
+          spec = app.openapi()
+          spec['paths'] = {k.replace('/api/v1', '', 1) if k.startswith('/api/v1') else k: v for k, v in spec.get('paths', {}).items()}
+          with open('$REPO_ROOT/runtime_openapi.json', 'w', encoding='utf-8') as f:
+              json.dump(spec, f, indent=2)
+          "
 
           # Diff contract vs runtime — mount qua /repo (ADR D15)
           docker run --rm \
             -v "$REPO_ROOT:/repo" \
-            ghcr.io/tufin/oasdiff:v1.10.11 \
+            tufin/oasdiff:v1.10.11 \
             diff \
             /repo/docs/api/openapi.yaml \
             /repo/runtime_openapi.json \
