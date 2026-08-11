@@ -213,4 +213,4 @@ jobs:
             /repo/runtime_openapi.json \
             --format json \
             --fail-on-diff \
-            --exclude-elements info,.openapi,servers,summary,description,externalDocs,tags
+            --exclude-elements description,summary,examples,title
