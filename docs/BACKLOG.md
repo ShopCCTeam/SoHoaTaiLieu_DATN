@@ -132,17 +132,6 @@ def process_result_value(self, value: Any, dialect: Any) -> str | None:
 
 ---
 
-## B7 — Docstring trong `tests/test_models_pg.py`
-
-**Mô tả**: Sửa 2 lỗi docstring trong `test_models_pg.py`.
-
-**Lý do**: Nêu 2026-08-10 nhưng chưa ưu tiên. Không blocking — ưu tiên OCR/RAG.
-
-**Cách làm**:
-- Sửa docstring: `test_refresh_session_inet_roundtrip_on_postgres` → mô tả INET type, không phải IP string
-- Thêm `import asyncpg` (InvalidCatalogNameError) trong test nếu dùng `pg_engine` với skip logic mở rộng
-
----
 
 ## B8 — `_INet.process_result_value` thiếu handling IPv4Address object
 
