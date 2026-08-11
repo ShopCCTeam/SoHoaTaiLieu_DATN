@@ -207,7 +207,7 @@ jobs:
           # Diff contract vs runtime — mount qua /repo (ADR D15)
           docker run --rm \
             -v "$REPO_ROOT:/repo" \
-            tufin/oasdiff:v1.10.11 \
+            tufin/oasdiff:latest \
             diff \
             /repo/docs/api/openapi.yaml \
             /repo/runtime_openapi.json \
