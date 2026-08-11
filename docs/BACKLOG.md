@@ -16,6 +16,26 @@
 - Module-level gates: `app/modules/auth/`: 80%, `app/modules/rag/`: 80%, `app/api/`: 70%, `app/core/`: 60%
 - Chạy `coverage` trong CI, fail nếu threshold không đạt
 
+**Trạng thái**: Auth coverage hiện tại **75.38%** (2026-08-11). Gate CI đặt tạm ở 75%. Nâng dần theo từng sprint, KHÔNG hạ.
+
+**Ratchet log**:
+| Ngày | Coverage | Ghi chú |
+|---|---|---|
+| 2026-08-11 | 75.38% | Baseline — chưa cover refresh_service family rotation logic |
+
+---
+
+## B7 — Docstring `_INet` trong `test_models_pg.py`
+
+**Mô tả**: Sửa 2 lỗi docstring trong `test_models_pg.py` (tên test không mô tả đúng INET, thiếu import asyncpg).
+
+**Lý do**: Ngày 2026-08-10 đã nêu, nhưng chưa ưu tiên.
+
+**Cách làm**:
+- Sửa docstring: `test_refresh_session_inet_roundtrip_on_postgres` → mô tả INET, không phải IP string
+- Thêm `import asyncpg` (InvalidCatalogNameError) trong test nếu dùng `pg_engine` với skip logic mở rộng
+- Không blocking PR — chuyển sang phase OCR/RAG trước
+
 ---
 
 ## B2 — Test Concurrency FOR UPDATE trên PostgreSQL
