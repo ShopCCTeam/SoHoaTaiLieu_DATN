@@ -283,17 +283,17 @@
 |----|---|---|---|
 | A1 | Auth Unit Tests | ✅ | `uv run pytest tests/test_auth_router.py tests/test_auth_security.py tests/test_auth_seed.py` — **48 passed** (2026-08-10 09:18 UTC, term 810998) |
 | A2 | Auth Coverage ≥ 75% | ✅ | `pytest --cov=app.modules.auth --cov-report=term-missing` — **75.38%** overall (term 810998) |
-| A3 | Full test suite (no PG) | ✅ | `uv run pytest -v --tb=line` — **80 passed, 4 deselected** (Postgres integration skipped) (term 810997) |
+| A3 | Full test suite (no PG) | ✅ | `uv run pytest -v --tb=line` — **84 passed, 4 deselected** (Postgres integration deselected, not skipped) |
 | A4 | Docker Compose syntax | ⏸ Planned | Docker Desktop chưa cài trên máy; validate bằng `docker compose config` khi đã cài |
 
 ---
 
-## Phase Backend — ✅ Đã hoàn thành Phase 0 + Phase 1.1
+## Phase Backend — ⏸ Đang xây dựng Phase 1.1
 
 **Đã chốt ở Phase 1.1** (2026-08-10):
 - ✅ Auth: login, me, refresh (rotation), logout.
 - ✅ Argon2id hashing, RefreshSession model, origin-CSRF.
-- ✅ SQLite tests: 80 passed.
+- ✅ SQLite tests: 84 passed (Phase 1.1 implementation), 7 new config tests.
 - ✅ ADR-0003: `docs/adr/0003-auth-hardening.md`.
 - ⚠️ Postgres/Docker/CI: **CHƯA có bằng chứng** — chờ Docker Desktop.
 
