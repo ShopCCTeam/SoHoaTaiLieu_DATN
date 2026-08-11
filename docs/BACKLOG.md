@@ -129,3 +129,35 @@ def process_result_value(self, value: Any, dialect: Any) -> str | None:
       # tạo token expired
   ```
 - Thêm `freezegun` vào `pyproject.toml` `[tool.poetry.group.dev.dependencies]`
+
+---
+
+## B7 — Docstring trong `tests/test_models_pg.py`
+
+**Mô tả**: Sửa 2 lỗi docstring trong `test_models_pg.py`.
+
+**Lý do**: Nêu 2026-08-10 nhưng chưa ưu tiên. Không blocking — ưu tiên OCR/RAG.
+
+**Cách làm**:
+- Sửa docstring: `test_refresh_session_inet_roundtrip_on_postgres` → mô tả INET type, không phải IP string
+- Thêm `import asyncpg` (InvalidCatalogNameError) trong test nếu dùng `pg_engine` với skip logic mở rộng
+
+---
+
+## B8 — `_INet.process_result_value` thiếu handling IPv4Address object
+
+**Mô tả**: `process_result_value` trong `_INet` TypeDecorator không xử lý khi PG trả về `IPv4Address`/`IPv6Address` object (chỉ xử lý `str` và `None`).
+
+**Lý do**: Trên SQLite → nhận `str`. Trên PostgreSQL → nhận `ipaddress.IPv4Address` object. Annotation ghi `Mapped[str | None]` nhưng code trả về `value` (có thể là object). Không crash vì PG trả về `str(value)` nhưng không tường minh.
+
+**Cách làm**:
+```python
+def process_result_value(self, value: Any, dialect: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    # PG trả về ipaddress object
+    return str(value)
+```
+- Thêm test trong `test_models_pg.py` verify IPv4/IPv6 string sau roundtrip

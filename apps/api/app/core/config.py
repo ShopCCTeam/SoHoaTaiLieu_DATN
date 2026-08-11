@@ -1,9 +1,10 @@
 """Pydantic Settings (12-factor). Load từ env + .env.
 
 Quy tắc:
-- Tất cả config có default an toàn ở dev.
-- Production phải set POSTGRES_PASSWORD, JWT_SECRET, MINIO_SECRET_KEY
+- Tất cả config có default an toàn ở dev (khớp docker-compose.yml).
+- Production/staging phải set POSTGRES_PASSWORD, JWT_SECRET, MINIO_SECRET_KEY
   qua secret manager (KHÔNG commit .env).
+- validate_production() fail-closed: reject deployment nếu có config yếu.
 """
 from __future__ import annotations
 
@@ -41,7 +42,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_db: str = "ctsv"
     postgres_user: str = "ctsv_app"
-    postgres_password: SecretStr = Field(default=SecretStr("change-me"))
+    postgres_password: SecretStr = Field(default=SecretStr("ctsv_dev_password"))
     postgres_timeout_seconds: int = 5
 
     # ---- Redis (Celery broker) ----
@@ -111,24 +112,44 @@ class Settings(BaseSettings):
 
     # ---- Fail-closed checks (D9) ----
     def validate_production(self) -> list[str]:
-        """Return list of warnings/errors nếu production config không an toàn."""
+        """Return list of warnings/errors nếu production/staging config không an toàn.
+
+        Fail-closed: rejects deployment nếu có config yếu. ADR D9.
+        Áp dụng cho {production, staging} — không phải development/test.
+        """
         issues: list[str] = []
 
-        # JWT secret phải được override ở production
+        # JWT secret: phải khác default VÀ đủ dài
         default_jwt = "dev-only-change-in-production-use-32-plus-bytes"
-        if self.app_env == "production":
-            if self.jwt_secret.get_secret_value() == default_jwt:
+        if self.app_env in {"production", "staging"}:
+            jwt_val = self.jwt_secret.get_secret_value()
+            if jwt_val == default_jwt:
                 issues.append(
-                    "JWT_SECRET is using default value in production. "
+                    "JWT_SECRET is using default value in production/staging. "
                     "Set APP_ENV=production and JWT_SECRET to a strong secret."
                 )
-            if not self.postgres_password.get_secret_value() or \
-               self.postgres_password.get_secret_value() == "change-me":
+            elif len(jwt_val) < 32:
                 issues.append(
-                    "POSTGRES_PASSWORD is using default value in production."
+                    f"JWT_SECRET is only {len(jwt_val)} characters. "
+                    "Minimum 32 bytes required (HS256 recommendation)."
                 )
-            # refresh_cookie_secure: property `cookie_secure` đã ép True ở
-            # production (line 103) → nhánh này luôn false positive.
+
+        # Postgres password: phải khác default dev password
+        if self.app_env in {"production", "staging"}:
+            pg_val = self.postgres_password.get_secret_value()
+            if not pg_val or pg_val == "ctsv_dev_password":
+                issues.append(
+                    "POSTGRES_PASSWORD is using dev default value in production/staging. "
+                    "Set POSTGRES_PASSWORD to a production-grade secret."
+                )
+
+        # MinIO secret key: không được dùng default
+        if self.app_env in {"production", "staging"}:
+            if self.minio_secret_key.get_secret_value() == "minioadmin":
+                issues.append(
+                    "MINIO_SECRET_KEY is using default value. "
+                    "Set MINIO_SECRET_KEY to a production-grade secret."
+                )
 
         return issues
 
