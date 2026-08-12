@@ -495,3 +495,85 @@ Stage tiền xử lý opt-in đã thêm trước hai OCR engine: deskew theo for
 | Trace privacy | ✅ test xác nhận trace không chứa question, quote hoặc answer |
 
 **Lưu ý kiểm chứng**: Regression chat phát ra 6 `SAWarning` về cleanup connection SQLite test harness; test vẫn pass và đây không phải lỗi chain. Full pytest/coverage mới nhất đạt **80.86%** nhưng kết thúc `3 failed, 258 passed, 1 skipped, 3 errors`: các test PostgreSQL/Alembic bị chặn bởi xác thực PostgreSQL test và các test BGE-M3 live bị chặn bởi payload embedding không hợp lệ. Hai nhóm này có trước T06, không được ghi là full-suite clean. Docker runtime sau rebuild riêng có `ctsv-api`, `ctsv-worker`, `ctsv-ollama`, Redis, PostgreSQL và MinIO đều `healthy`.
+
+
+---
+
+## 2026-08-12 — B5: Ổn định, kiểm kê và evidence sau T01–T06
+
+**Kiểm kê implementation thực tế**:
+
+- `apps/api` không còn là scaffold: hiện có FastAPI, models, migrations, document/auth/search/chat modules, `app/worker/`, OCR native, storage, embedding và LangChain chain.
+- Compose chuẩn là `infra/docker/docker-compose.yml`, gồm PostgreSQL+pgvector, Redis, MinIO, Ollama, API và worker. Worker implementation thật ở `apps/api/app/worker/`; `services/worker/` chỉ còn tài liệu scaffold cũ.
+- Frontend hỗ trợ live mode và mock mode. Các Next.js route như `/api/chat/query` vẫn ghi rõ `DEMO ONLY`; chúng phục vụ UI/demo, không phải bằng chứng FastAPI/RAG runtime.
+- `services/ocr-training/` vẫn là scaffold offline. Chưa có corpus được phê duyệt hay benchmark CER/WER; không khẳng định fine-tune OCR đã hoàn tất.
+
+**Sửa trực tiếp trong phạm vi B5**:
+
+- Áp dụng Ruff format cho `security.py`, `embedding.py`, `ocr_engine.py` và `rag_chain.py`; không đổi hành vi contract/OCR/RAG.
+- Sửa fixture PostgreSQL integration để lỗi credential local được skip ngoài CI nhưng fail-closed trong CI. Test round-trip Alembic nay probe xác thực trước migration, tránh báo lỗi migration giả do database test local chưa được cấu hình.
+- Đồng bộ `README.md` và `AGENTS.md` với source/runtime thật, chỉ ra đường dẫn Compose chuẩn, mock/live boundary, training scaffold và lệnh quality gate. Không đưa password, `.env`, tài liệu/OCR thật hay model artifact vào tài liệu.
+
+**Evidence đã chạy**:
+
+| Gate | Kết quả |
+|---|---|
+| OpenAPI/frontend/workspace | ✅ `pnpm check` PASS; frontend có 32 unit tests pass, build hoàn tất 12 route. |
+| Backend static | ✅ Ruff check + Ruff format check PASS; mypy PASS trên 65 source files. |
+| Backend tests local | ✅ 260 passed, 5 skipped, 8 warnings. Năm skip là integration PostgreSQL khi test database local không xác thực được; CI vẫn fail-closed. |
+| Targeted OCR/RAG | ✅ 23 passed, 1 skipped, 1 warning: OCR 300 DPI/preprocessing/image, guardrail 0.6, citation, LangChain chain và chat router. |
+| Compose config | ✅ `docker-compose --env-file .env.example -f infra/docker/docker-compose.yml config` PASS; không đọc `.env` thật và không khởi động service. |
+| Runtime health | ✅ API, worker, Ollama, Redis, PostgreSQL và MinIO đều healthy. |
+| OCR native | ✅ worker xử lý ảnh PNG synthetic: 1 page, 2 blocks, 1600×900; chỉ ghi metadata. |
+| LangChain/Ollama | ✅ API gọi chain nội bộ với evidence synthetic: evidence đủ, 1 citation, answer không rỗng; chỉ ghi metadata. |
+
+**Giới hạn và việc còn mở**:
+
+- PostgreSQL/Alembic integration chưa có evidence pass trên database test được cấu hình đúng; local hiện skip do credential test không sẵn sàng, không được coi là PostgreSQL integration clean.
+- Suite backend còn 8 warning, gồm cảnh báo cleanup connection SQLAlchemy trong test harness; test logic vẫn pass nhưng warning cần theo dõi riêng.
+- Smoke OCR/RAG dùng dữ liệu synthetic. Không chạy upload PDF/ảnh thật, không benchmark CER/WER, không truy cập hoặc log nội dung tài liệu người dùng.
+- Không có commit, push, migration, seed, Docker Compose up/down hay rebuild trong đợt B5.
+
+
+---
+
+## 2026-08-12 — B6: PostgreSQL integration và full HTTP E2E synthetic
+
+**Thiết lập cô lập và fail-closed**:
+
+- Dùng database PostgreSQL riêng `ctsv_b6_test`, role runner giới hạn và file biến môi trường tạm ngoài repository. Credential không được ghi vào source, log hoặc tài liệu.
+- `tests/conftest.py` và `tests/test_alembic.py` yêu cầu database integration hợp lệ khi chạy marker `integration` hoặc trong CI. Credential/database lỗi phải làm test fail, không được đổi thành skip âm thầm.
+- Cấu hình `CELERY_DOCUMENTS_QUEUE` được đưa vào `Settings`; runner B6 dùng queue `b6-documents`, Redis DB broker/backend riêng và bucket `ctsv-b6-synthetic` để không đụng job hay object runtime chính.
+
+**PostgreSQL/Alembic và regression**:
+
+| Gate | Kết quả đã có evidence |
+|---|---|
+| Alembic round-trip trên PostgreSQL cô lập | ✅ Test migration upgrade/downgrade/upgrade nằm trong 5 integration tests pass |
+| ORM PostgreSQL | ✅ 5 passed với `pytest -m integration` |
+| Static backend | ✅ Ruff check, Ruff format check và mypy pass trên 65 source files |
+| Adapter/config Ollama | ✅ 28 targeted tests pass; payload BGE-M3 và provider Ollama được ghim `keep_alive` |
+| Full backend suite | ✅ `266 passed, 1 skipped, 8 warnings` trong 59.27s |
+| Workspace | ✅ `pnpm check` pass; 32 frontend tests pass và build 12 route hoàn tất |
+| Whitespace diff | ✅ `git diff --check` exit 0; chỉ còn cảnh báo chuyển CRLF/LF của Git, không có whitespace error |
+
+**Full HTTP E2E synthetic thực tế**:
+
+- Runner tạm khởi tạo cặp API/worker riêng trên port `18000`, chạy Alembic, seed demo user trong namespace B6 và dọn hai container ở `finally`. Không chạy Docker Compose hay Docker build.
+- E2E gọi HTTP thật theo luồng login staff/student → upload PDF synthetic → poll worker → OCR → lưu raw/preview PNG trong MinIO → kiểm tra metadata PostgreSQL → search → LangChain/Ollama chat → assertion RBAC và insufficient-evidence.
+- Lần evidence cuối trả: `B6 E2E passed: pages=1 blocks=1 chunks=1 embedding_dimension=1024 citations=1` và `content_log_check=clean`.
+- Staff nhận được evidence/citation thật. Student bị từ chối ở ba đường INTERNAL: document detail, search và chat (HTTP 403). Câu hỏi không liên quan trả `has_sufficient_evidence=false` và không có citation.
+- RAG guardrail vẫn giữ cosine `rag_vector_score_threshold=0.6`; test ghim `0.61` được nhận và `0.59` bị loại.
+
+**Kiểm soát bộ nhớ runtime B6**:
+
+- Lỗi E2E ban đầu là Ollama chấm dứt `qwen2.5:7b` vì áp lực RAM khi BGE-M3 còn resident. Không đổi model, không dùng mock và không hạ guardrail.
+- Bổ sung hai setting explicit `embedding_ollama_keep_alive` và `llm_ollama_keep_alive`, mặc định `5m` để giữ hành vi runtime thông thường. Chỉ runner B6 đặt `0`, khiến BGE-M3/Qwen được unload sau request; worker B6 chạy một process và `max-tasks-per-child=1` để tránh OCR/PaddleOCR giữ RAM không cần thiết. Lần chạy cuối E2E pass với Ollama và OCR thật.
+- E2E không gửi marker nội dung synthetic trong query-string nữa vì access log URL đã tạo false positive. Log API/worker được kiểm marker sau chạy và kết quả clean.
+
+**Warnings và giới hạn còn lại**:
+
+- Tám `SAWarning` SQLAlchemy đã điều tra là garbage-collector cleanup connection SQLite trong `test_stateless_chat_query`; không phải `ResourceWarning` hay leak đã tái hiện từ code runtime. Trước đó suite với `-W error::ResourceWarning` vẫn pass.
+- Không có corpus OCR được phê duyệt: chưa benchmark CER/WER, chưa tuyên bố OCR fine-tune/training hoàn tất và không đọc PDF/OCR thật.
+- E2E dùng PDF synthetic một trang; chưa thay thế bằng benchmark tải lớn, nhiều trang hoặc PDF scan tiếng Việt được phê duyệt.
+- Không commit, push, thay đổi OpenAPI, migration schema, Docker Compose hay dữ liệu/model artifact trong B6.

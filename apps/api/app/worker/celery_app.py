@@ -30,7 +30,7 @@ def configure_celery(settings: Settings | None = None) -> None:
         task_eager_propagates=True,
         task_store_eager_result=False,
         task_routes={
-            "app.worker.tasks.process_document_task": {"queue": "documents"},
+            "app.worker.tasks.process_document_task": {"queue": st.celery_documents_queue},
         },
     )
 

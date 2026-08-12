@@ -155,3 +155,22 @@ def test_validate_production_jwt_default_rejected(monkeypatch: pytest.MonkeyPatc
     jwt_issues = [i for i in issues if "JWT_SECRET" in i]
     assert len(jwt_issues) >= 1
     assert any("default value" in i for i in jwt_issues)
+
+
+def test_document_queue_defaults_and_supports_test_namespace() -> None:
+    """Queue documents mặc định giữ nguyên, nhưng B6 có thể cô lập worker test."""
+    default_settings = Settings()  # type: ignore[call-arg]
+    isolated_settings = Settings(celery_documents_queue="b6-documents")  # type: ignore[call-arg]
+
+    assert default_settings.celery_documents_queue == "documents"
+    assert isolated_settings.celery_documents_queue == "b6-documents"
+
+
+def test_document_queue_configures_celery_route() -> None:
+    """Celery phải route OCR task sang queue cấu hình, không hard-code queue dev."""
+    from app.worker.celery_app import celery_app, configure_celery
+
+    configure_celery(Settings(celery_documents_queue="b6-documents"))  # type: ignore[call-arg]
+
+    routes = celery_app.conf.task_routes
+    assert routes["app.worker.tasks.process_document_task"]["queue"] == "b6-documents"

@@ -193,6 +193,7 @@ class LangChainOllamaAdapter:
         self.chat_model = ChatOllama(
             base_url=settings.llm_ollama_base_url,
             model=settings.llm_ollama_model_name,
+            keep_alive=settings.llm_ollama_keep_alive,
             temperature=settings.llm_temperature,
             num_predict=settings.llm_max_tokens,
         )
@@ -222,9 +223,7 @@ class LangChainRagChain:
     ) -> None:
         self.retriever = retriever
         llm_adapter = (
-            ProviderLangChainAdapter(llm_provider)
-            if llm_provider
-            else _default_llm_adapter()
+            ProviderLangChainAdapter(llm_provider) if llm_provider else _default_llm_adapter()
         )
         self.prompt = ChatPromptTemplate.from_messages(
             [
@@ -241,9 +240,7 @@ class LangChainRagChain:
         llm_runnable: Any = RunnableLambda(llm_adapter.ainvoke)
         self.generation_chain: Any = self.prompt | llm_runnable | StrOutputParser()
 
-    async def retrieve_grounded(
-        self, question: str
-    ) -> tuple[bool, list[CitationSchema]]:
+    async def retrieve_grounded(self, question: str) -> tuple[bool, list[CitationSchema]]:
         """Run the RBAC retriever and cosine guardrail without invoking an LLM."""
         search_items = await self.retriever.retrieve(question)
         return evaluate_grounding_and_citations(search_items)

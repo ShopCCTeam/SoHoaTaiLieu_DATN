@@ -20,5 +20,6 @@ def get_llm_provider(
             base_url=settings.llm_ollama_base_url,
             model_name=settings.llm_ollama_model_name,
             timeout_seconds=float(settings.llm_timeout_seconds),
+            keep_alive=settings.llm_ollama_keep_alive,
         )
     return MockLLMProvider()

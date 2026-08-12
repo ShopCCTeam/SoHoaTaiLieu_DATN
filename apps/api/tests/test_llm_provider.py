@@ -56,6 +56,7 @@ async def test_ollama_llm_provider_generate():
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args.kwargs
         assert call_kwargs["json"]["model"] == "qwen2.5:8b"
+        assert call_kwargs["json"]["keep_alive"] == "5m"
         assert len(call_kwargs["json"]["messages"]) == 2
         assert call_kwargs["json"]["messages"][0]["role"] == "system"
 

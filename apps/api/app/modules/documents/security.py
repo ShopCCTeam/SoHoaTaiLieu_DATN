@@ -123,9 +123,7 @@ async def validate_upload_file(
         require_content_type=True,
     )
 
-    max_file_size = (
-        MAX_FILE_SIZE_BYTES if detected_format == "pdf" else MAX_IMAGE_SIZE_BYTES
-    )
+    max_file_size = MAX_FILE_SIZE_BYTES if detected_format == "pdf" else MAX_IMAGE_SIZE_BYTES
     max_size_detail = "50MB với PDF và 10MB với JPEG/PNG"
     if len(header) > max_file_size:
         raise payload_too_large(

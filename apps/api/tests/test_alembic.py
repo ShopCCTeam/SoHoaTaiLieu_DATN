@@ -106,14 +106,17 @@ def test_alembic_base_is_none(script_dir: ScriptDirectory) -> None:
 def test_alembic_upgrade_downgrade_on_postgres() -> None:
     """Apply + rollback trên Postgres thật. Cần postgres service trong CI.
 
-    Trong CI: probe fail → pytest.fail (Postgres phải chạy).
-    Ngoài CI: skip (expected).
+    Trong CI hoặc `pytest -m integration`: probe fail → pytest.fail.
+    Full suite local không yêu cầu integration: skip khi database test chưa sẵn sàng.
 
     URL là `postgresql+asyncpg://` — alembic/env.py dùng create_async_engine
     bắt buộc driver async. `postgresql://` (psycopg2) sẽ raise
     InvalidRequestError ở CI khi có PG thật.
     """
+    import asyncio
     import socket
+
+    import asyncpg
 
     from alembic import command
     from alembic.config import Config
@@ -125,11 +128,14 @@ def test_alembic_upgrade_downgrade_on_postgres() -> None:
     password = os.environ.get("POSTGRES_PASSWORD", "ctsv_test")
     url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db}"
 
-    _IN_CI = os.environ.get("CI", "").lower() in {"1", "true", "yes"}
+    integration_required = (
+        os.environ.get("CI", "").lower() in {"1", "true", "yes"}
+        or os.environ.get("PYTEST_INTEGRATION_REQUIRED") == "1"
+    )
 
     def _skip_or_fail(msg: str) -> None:
-        if _IN_CI:
-            pytest.fail(f"CI phải có Postgres: {msg}")
+        if integration_required:
+            pytest.fail(f"PostgreSQL integration bắt buộc: {msg}")
         pytest.skip(msg)
 
     # Probe TCP trước — skip/fail nhanh nếu Postgres không có.
@@ -140,6 +146,21 @@ def test_alembic_upgrade_downgrade_on_postgres() -> None:
         # OSError cover ConnectionRefusedError + socket.gaierror + TimeoutError
         # trên mọi platform. Tuple explicit là dư — simplify.
         _skip_or_fail(f"Postgres không khả dụng tại {host}:{port}: {exc!r}")
+
+    async def _probe_credentials() -> None:
+        connection = await asyncpg.connect(
+            host=host,
+            port=int(port),
+            database=db,
+            user=user,
+            password=password,
+        )
+        await connection.close()
+
+    try:
+        asyncio.run(_probe_credentials())
+    except (OSError, asyncpg.PostgresError) as exc:
+        _skip_or_fail(f"Postgres không xác thực được tại {host}:{port}: {exc!r}")
 
     # Alembic folder ở `apps/api/alembic/` (không phải `tests/alembic/`).
     here = Path(__file__).parent

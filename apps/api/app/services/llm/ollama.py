@@ -18,10 +18,12 @@ class OllamaLLMProvider(AbstractLLMProvider):
         base_url: str = "http://localhost:11434",
         model_name: str = "qwen2.5:8b",
         timeout_seconds: float = 30.0,
+        keep_alive: str = "5m",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model_name = model_name
         self.timeout_seconds = timeout_seconds
+        self.keep_alive = keep_alive
 
     async def generate(
         self,
@@ -40,6 +42,7 @@ class OllamaLLMProvider(AbstractLLMProvider):
             "model": self.model_name,
             "messages": messages,
             "stream": False,
+            "keep_alive": self.keep_alive,
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
@@ -72,6 +75,7 @@ class OllamaLLMProvider(AbstractLLMProvider):
             "model": self.model_name,
             "messages": messages,
             "stream": True,
+            "keep_alive": self.keep_alive,
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,

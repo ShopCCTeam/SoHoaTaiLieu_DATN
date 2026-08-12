@@ -427,7 +427,6 @@ class FallbackMockOcrStrategy(OcrEngineStrategy):
             )
         ]
 
-
     def process_image(self, image_bytes: bytes) -> list[OcrPageResult]:
         """Return deterministic page metadata for explicitly injected test OCR only."""
         return self.process_pdf(image_bytes)

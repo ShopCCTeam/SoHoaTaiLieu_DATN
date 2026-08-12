@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
+    celery_documents_queue: str = "documents"
     celery_task_always_eager: bool = False
     celery_task_time_limit: int = 300
     celery_task_soft_time_limit: int = 240
@@ -89,6 +90,7 @@ class Settings(BaseSettings):
     embedding_provider: Literal["bge-m3", "mock"] = "mock"
     embedding_api_url: str = "http://localhost:11434/api/embed"
     embedding_model_name: str = "bge-m3"
+    embedding_ollama_keep_alive: str = "5m"
 
     # ---- RAG grounding ----
     rag_vector_score_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
@@ -97,6 +99,7 @@ class Settings(BaseSettings):
     llm_provider: Literal["ollama", "mock"] = "mock"
     llm_ollama_base_url: str = "http://localhost:11434"
     llm_ollama_model_name: str = "qwen2.5:7b"
+    llm_ollama_keep_alive: str = "5m"
     llm_temperature: float = 0.7
     llm_max_tokens: int = 1000
     llm_timeout_seconds: int = 30

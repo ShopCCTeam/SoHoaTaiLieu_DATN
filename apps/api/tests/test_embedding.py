@@ -86,7 +86,11 @@ async def test_bge_m3_embedding_uses_ollama_embed_batch_endpoint(
     assert requests == [
         (
             endpoint,
-            {"model": "bge-m3", "input": ["Văn bản một", "Văn bản hai"]},
+            {
+                "model": "bge-m3",
+                "input": ["Văn bản một", "Văn bản hai"],
+                "keep_alive": strategy.keep_alive,
+            },
         )
     ]
 

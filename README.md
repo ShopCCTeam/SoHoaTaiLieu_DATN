@@ -1,151 +1,130 @@
-# Hệ Thống Số Hoá & Quản Lý Tài Liệu Công Tác Sinh Viên
+# Hệ thống Số hoá và Quản lý Tài liệu Công tác Sinh viên
 
-> Đồ án tốt nghiệp: **"Xây dựng hệ thống số hoá và quản lý tài liệu Công tác sinh viên ứng dụng OCR, RAG và LangChain"**
+> Đồ án tốt nghiệp về số hoá, kiểm duyệt và truy xuất tài liệu Công tác Sinh viên bằng OCR, RAG và LangChain.
 
-## 🏛 Kiến trúc
+## Trạng thái hiện tại
 
-```
-                         Người dùng (Web Browser)
-                                  │
-                                  ▼
-                    ┌──────────────────────────┐
-                    │   Next.js 14 (apps/web)  │  ← Frontend (đã xong F0–F6)
-                    └──────────┬───────────────┘
-                               │ HTTPS / JWT
-                               ▼
-                    ┌──────────────────────────┐
-                    │   FastAPI  (apps/api)    │  ← Backend (đang scaffold)
-                    │  REST API + RBAC + Auth  │
-                    └────┬─────┬─────────┬─────┘
-                         │     │         │
-              ┌──────────┘     │         └─────────────┐
-              ▼                ▼                       ▼
-      ┌──────────────┐  ┌──────────────┐         ┌──────────────┐
-      │ PostgreSQL 16│  │    MinIO     │         │    Redis     │
-      │ + pgvector   │  │ (S3 file)   │         │  (broker)    │
-      └──────────────┘  └──────────────┘         └──────┬───────┘
-                                                       │
-                                                       ▼
-                                              ┌──────────────────┐
-                                              │  Celery Worker   │
-                                              │  - OCR pipeline  │
-                                              │  - Embedding     │
-                                              │  - Indexing      │
-                                              └─────────┬────────┘
-                                                        │
-                                                        ▼
-                                              ┌──────────────────┐
-                                              │   Ollama (LLM)   │
-                                              │  + BGE-M3 embed  │
-                                              └──────────────────┘
+Hệ thống đã có **backend FastAPI chạy được**, worker Celery, lưu trữ MinIO, PostgreSQL với pgvector, Redis, OCR native và RAG nội bộ qua Ollama. Frontend Next.js vẫn hỗ trợ cả **live mode** và **mock mode** nhằm phục vụ demo/UI test; mock route không được xem là bằng chứng backend production.
+
+| Hạng mục | Trạng thái | Ghi chú |
+|---|---|---|
+| Frontend Next.js | Có implementation | F0–F6; live mode gọi FastAPI, mock mode phục vụ UI/demo. |
+| Auth và RBAC | Có implementation | JWT access token, refresh rotation, backend scope check. |
+| Upload và OCR | Có implementation | PDF 300 DPI; JPEG/PNG một trang; PaddleOCR primary, Tesseract fallback. |
+| OCR review | Có implementation | Ảnh PNG private, proxy qua API sau kiểm tra RBAC. |
+| Search và chat RAG | Có implementation | Hybrid retrieval, guardrail cosine 0.6, citation, Ollama nội bộ. |
+| Worker và indexing | Có implementation | Celery xử lý OCR/indexing; job chỉ thành công sau indexing. |
+| OCR training offline | Scaffold | `services/ocr-training/` chưa phải pipeline fine-tune hoàn chỉnh. |
+
+## Kiến trúc
+
+```text
+Người dùng
+    │
+    ▼
+Next.js 14 (apps/web)
+    │ HTTPS / Bearer access token
+    ▼
+FastAPI (apps/api)
+    ├── PostgreSQL 16 + pgvector
+    ├── MinIO (raw upload và PNG review private)
+    ├── Redis (Celery broker/result backend)
+    └── Celery worker (apps/api/app/worker)
+            ├── PaddleOCR primary / Tesseract fallback
+            ├── chunking và BGE-M3 embedding
+            └── Ollama nội bộ: bge-m3 + qwen2.5:7b
 ```
 
-## 📦 Tech stack (đã chốt)
+## Stack đã chốt
 
-| Layer | Tech |
+| Layer | Công nghệ |
 |---|---|
-| **Frontend** | Next.js 14 App Router · TypeScript Strict · Tailwind · Zustand · TanStack Query |
-| **Backend** | Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x · Alembic |
-| **Database** | PostgreSQL 16 + pgvector (vector + full-text + metadata) |
-| **Queue** | Celery + Redis |
-| **Storage** | MinIO (S3-compatible) |
-| **OCR** | PaddleOCR (primary) + Tesseract (fallback runtime only) |
-| **Embedding** | BGE-M3 multilingual (1024 dim) |
-| **LLM** | Ollama local (Qwen2.5 hoặc Llama-3.1 8B) — provider adapter để swap |
-| **Tooling** | pnpm · uv · Ruff · mypy · pytest · Playwright · Docker Compose |
+| Frontend | Next.js 14 App Router, TypeScript strict, Tailwind, Zustand, TanStack Query |
+| Backend | Python 3.11, FastAPI, Pydantic v2, SQLAlchemy async, Alembic |
+| Database | PostgreSQL 16, pgvector, full-text search |
+| Queue và storage | Celery, Redis, MinIO |
+| OCR | PaddleOCR primary, Tesseract chỉ fallback runtime |
+| RAG | LangChain, BGE-M3 1024 chiều, Ollama/Qwen2.5 nội bộ |
+| Tooling | pnpm, uv, Ruff, mypy, pytest, Playwright, Docker Compose |
 
-## 📂 Cấu trúc repo
+## Cấu trúc repository
 
-```
+```text
 SoHoaTaiLieu_DATN/
 ├── apps/
-│   ├── web/                    # Next.js Frontend (F0–F6 done)
-│   └── api/                    # FastAPI Backend (scaffold — chưa có code)
-├── services/
-│   ├── worker/                 # Celery worker (scaffold)
-│   └── ocr-training/           # OCR training pipeline (offline)
+│   ├── web/                         # Next.js UI, test và mock route demo
+│   └── api/                         # FastAPI, models, services, worker, Alembic, pytest
 ├── packages/
-│   └── contracts/              # Shared FE/BE types (scaffold)
+│   └── contracts/                   # TypeScript sinh từ docs/api/openapi.yaml
 ├── infra/
-│   └── docker/                 # Dockerfile, docker-compose.yaml
+│   └── docker/
+│       ├── Dockerfile.api
+│       └── docker-compose.yml       # PostgreSQL, Redis, MinIO, Ollama, API, worker
+├── services/
+│   ├── worker/                      # Tài liệu scaffold cũ; worker thật nằm trong apps/api/app/worker
+│   └── ocr-training/                # Scaffold huấn luyện offline
 ├── docs/
-│   ├── api/                    # OpenAPI spec, contract notes
-│   ├── domain/                 # RBAC matrix, lifecycle, citation spec
-│   ├── adr/                    # Architecture Decision Records
-│   ├── evaluation/             # OCR training reports
-│   └── runbooks/               # Operational guides
-├── data/                       # ⚠️ KHÔNG commit dữ liệu thật
-├── models/                     # ⚠️ KHÔNG commit model artifact
-├── .cursor/rules/              # 8 rule files (xem AGENTS.md)
-├── .skills/                    # 27 Agent Skill
-├── AGENTS.md
-└── README.md                   # file này
+│   ├── api/                         # OpenAPI contract và ghi chú API
+│   ├── domain/                      # RBAC, lifecycle, citation spec
+│   ├── adr/                         # Architecture Decision Records
+│   └── PROGRESS.md                  # Nhật ký implementation và evidence
+├── data/                            # Không commit dữ liệu thật
+├── models/                          # Không commit model/checkpoint
+├── AGENTS.md                        # Entry point cho agent
+└── MANUS.md                         # Quy tắc thao tác chi tiết
 ```
 
-## 🚀 Cách chạy (hiện tại)
+## Chạy và kiểm chứng
 
-### Frontend (đã chạy được)
-
-```bash
-pnpm install
-pnpm dev               # http://localhost:3000
-pnpm test              # Vitest
-pnpm build             # Production build
-pnpm lint              # ESLint
-```
-
-Tài khoản demo (chỉ chạy mock, **KHÔNG dùng trong production**):
-- `admin@example.edu.vn` / `demo_password`
-- `staff@example.edu.vn` / `demo_password`
-- `student@example.edu.vn` / `demo_password`
-
-### Backend (chưa có code — đang ở phase foundation)
-
-Sẽ hướng dẫn chi tiết sau khi Phase 0 BE được phê duyệt. Theo dõi `docs/PROGRESS.md`.
-
-## 🔐 Quy tắc bảo mật dữ liệu
-
-> **CẢNH BÁO**: Repo này có thể chứa dữ liệu sinh viên thật (PDF, ảnh, transcript).
-
-- **KHÔNG commit** PDF, ảnh trang, ảnh dòng chữ, OCR text, hay transcript của tài liệu thật.
-- **KHÔNG commit** model checkpoint, log training, hoặc dữ liệu processed.
-- `.gitignore` đã loại trừ: `data/**`, `models/**`, `runs/`, `mlruns/`, `*.pdparams`, `*.safetensors`, `*.ckpt`, `*.onnx`, `*.pth`, `*.pt`, `.env*`.
-- Khi cần demo, dùng dữ liệu synthetic ở `data/fixtures/synthetic/` (được commit).
-
-## 🧪 Quality gate (sẽ chạy trong CI)
+Các lệnh dưới đây không chạy migration hay tạo dữ liệu seed. Hãy đọc `AGENTS.md`, `MANUS.md` và `.env.example` trước khi khởi động môi trường lần đầu; không đưa `.env` hoặc tài liệu thật vào repository.
 
 ```bash
-# Frontend
-pnpm install --frozen-lockfile
+# Contract và frontend
+pnpm openapi:lint
+pnpm --filter @ctsv/contracts generate
 pnpm --filter web lint
-pnpm --filter web exec tsc --noEmit
+pnpm --filter web typecheck
 pnpm --filter web test
 pnpm --filter web build
 
-# Backend (sau khi có code)
+# Backend
 cd apps/api
-uv sync
-ruff check .
-ruff format --check .
-mypy app
-pytest
-alembic upgrade head
+uv run ruff check app tests
+uv run ruff format --check app tests
+uv run mypy app
+uv run pytest -q
+
+# Tổng hợp workspace
+cd ../..
+pnpm check
 ```
 
-## 📚 Tài liệu quan trọng
+Compose chuẩn ở `infra/docker/docker-compose.yml`. Dùng `docker compose` hoặc `docker-compose` tuỳ binary đã cài, và chỉ khởi động/rebuild service khi đã được phê duyệt:
 
-| File | Mục đích |
+```bash
+docker-compose --env-file .env.example -f infra/docker/docker-compose.yml config
+```
+
+## Contract, bảo mật và dữ liệu
+
+`docs/api/openapi.yaml` là **single source of truth**. Mọi thay đổi endpoint/schema phải cập nhật contract trước, tái sinh `packages/contracts`, sau đó mới đổi backend/frontend.
+
+Backend là security boundary: scope/RBAC phải được kiểm tra trước storage, database, vector search hoặc retrieval. Ảnh review OCR không dùng URL MinIO public. Chat chỉ tạo citation từ evidence đã qua guardrail cosine `0.6`; khi thiếu evidence, trả no-answer và không tạo citation giả.
+
+Không commit password, token, `.env*`, PDF/ảnh/tài liệu thật, OCR text thật, dữ liệu training hay model artifact. Dùng fixture synthetic cho test và smoke test.
+
+## Tài liệu quan trọng
+
+| Tài liệu | Mục đích |
 |---|---|
-| `AGENTS.md` | Entry point cho AI agent |
-| `.cursor/rules/` | 8 rule file cho AI |
-| `docs/PROGRESS.md` | Nhật ký tiến độ dự án |
-| `docs/api/README.md` | API contract tổng quan |
-| `docs/api/openapi.yaml` | OpenAPI spec machine-readable |
-| `docs/domain/rbac-matrix.md` | Ma trận phân quyền |
-| `docs/domain/document-lifecycle.md` | State machine cho Document/Job/Index |
-| `docs/domain/citation-spec.md` | Schema citation RAG |
-| `docs/adr/0001-backend-stack.md` | ADR-0001 — chốt stack Python + pgvector |
+| `MANUS.md` | Quy tắc dự án tổng hợp, bắt buộc đọc trước thay đổi. |
+| `AGENTS.md` | Quy tắc thao tác, stack, quality gate. |
+| `docs/PROGRESS.md` | Mốc đã triển khai và giới hạn evidence. |
+| `docs/api/openapi.yaml` | Contract API chuẩn. |
+| `docs/domain/rbac-matrix.md` | Ma trận quyền và scope. |
+| `docs/domain/document-lifecycle.md` | State machine document/version/job/index. |
+| `docs/domain/citation-spec.md` | Schema và quy tắc citation RAG. |
 
-## 📝 License & bản quyền
+## Bản quyền
 
-Đồ án tốt nghiệp — phi thương mại.
+Đồ án tốt nghiệp, sử dụng phi thương mại.

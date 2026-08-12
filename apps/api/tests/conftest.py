@@ -26,15 +26,27 @@ from app.models.user import User
 # Env setup
 # ---------------------------------------------------------------------------
 
-# CI phải có Postgres — nếu probe fail thì FAIL, không skip. Local dev
-# không có Docker thì skip — expected.
+# CI và `pytest -m integration` phải có PostgreSQL thật. Full suite local
+# không yêu cầu integration mới được skip khi database test chưa sẵn sàng.
 _IN_CI = os.environ.get("CI", "").lower() in {"1", "true", "yes"}
+_INTEGRATION_REQUIRED_ENV = "PYTEST_INTEGRATION_REQUIRED"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Mark integration mode so DB failures cannot degrade into local skips."""
+    marker_expression = str(config.getoption("markexpr") or "")
+    if "integration" in marker_expression:
+        os.environ[_INTEGRATION_REQUIRED_ENV] = "1"
+
+
+def _integration_environment_required() -> bool:
+    return _IN_CI or os.environ.get(_INTEGRATION_REQUIRED_ENV) == "1"
 
 
 def _skip_or_fail(msg: str) -> None:
-    """Trong CI: fail (Postgres phải chạy). Ngoài CI: skip (expected)."""
-    if _IN_CI:
-        pytest.fail(f"CI phải có Postgres: {msg}")
+    """Fail when integration is explicitly required; otherwise skip local only."""
+    if _integration_environment_required():
+        pytest.fail(f"PostgreSQL integration bắt buộc: {msg}")
     pytest.skip(msg)
 
 
@@ -119,20 +131,21 @@ async def db_engine(tmp_path: Path):
 async def pg_engine():
     """Postgres async engine cho integration tests.
 
-    Trong CI: probe fail → pytest.fail (Postgres phải chạy).
-    Ngoài CI (dev không có Docker stack): skip.
+    Trong CI hoặc `pytest -m integration`: probe fail → pytest.fail.
+    Full suite local không yêu cầu integration: skip khi database test chưa sẵn sàng.
 
     Raises:
-        pytest.fail() — khi CI không có Postgres.
-        pytest.skip() — khi local không có Postgres.
+        pytest.fail() — khi integration environment được yêu cầu.
+        pytest.skip() — khi full suite local không yêu cầu integration.
     """
     engine = get_postgres_test_engine()
     try:
         async with engine.connect() as conn:
             await conn.run_sync(lambda c: None)
-    except (OSError, asyncpg.InvalidCatalogNameError) as exc:
+    except (OSError, asyncpg.InvalidCatalogNameError, asyncpg.InvalidPasswordError) as exc:
         # OSError bao trùm ConnectionRefusedError + socket.gaierror + TimeoutError.
-        # asyncpg.InvalidCatalogNameError — sai tên DB (asyncpg không phải OSError subclass).
+        # Các lỗi asyncpg này chỉ được skip ở full suite local; CI và explicit
+        # integration mode vẫn fail-closed qua _skip_or_fail.
         await engine.dispose()
         _skip_or_fail(f"Postgres không khả dụng: {type(exc).__name__}: {exc}")
 

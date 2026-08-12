@@ -72,6 +72,7 @@ class BGEM3EmbeddingStrategy(EmbeddingStrategy):
         settings = get_settings()
         self.api_url = api_url or settings.embedding_api_url
         self.model_name = model_name or settings.embedding_model_name
+        self.keep_alive = settings.embedding_ollama_keep_alive
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -80,7 +81,11 @@ class BGEM3EmbeddingStrategy(EmbeddingStrategy):
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
                     self.api_url,
-                    json={"model": self.model_name, "input": texts},
+                    json={
+                        "model": self.model_name,
+                        "input": texts,
+                        "keep_alive": self.keep_alive,
+                    },
                 )
                 if response.status_code != 200:
                     raise RuntimeError(
@@ -91,9 +96,7 @@ class BGEM3EmbeddingStrategy(EmbeddingStrategy):
                 raw_emb = data.get("embeddings") or data.get("embedding")
                 if not raw_emb and isinstance(data.get("data"), list):
                     raw_emb = [
-                        item.get("embedding")
-                        for item in data["data"]
-                        if isinstance(item, dict)
+                        item.get("embedding") for item in data["data"] if isinstance(item, dict)
                     ]
 
                 if (
