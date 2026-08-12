@@ -8,8 +8,10 @@ aligned at 300 DPI by default.
 
 from __future__ import annotations
 
+import io
 import time
 from abc import ABC, abstractmethod
+from base64 import b64decode
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,12 +19,16 @@ from structlog import get_logger
 
 from app.core.config import get_settings
 from app.core.enums import OCRPageStatus, OCRReviewStatus
+from app.services.ocr_preprocessing import OcrPreprocessOptions, preprocess_ocr_image
 
 logger = get_logger(__name__)
 
 OCR_CONFIDENCE_THRESHOLD: float = 0.9
 OCR_RENDER_DPI: int = 300
 OCR_TEXT_LAYER_MIN_CHARACTERS: int = 50
+TEST_PAGE_PNG = b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JHvsAAAAASUVORK5CYII="
+)
 
 
 @dataclass
@@ -43,6 +49,7 @@ class OcrPageResult:
     width: int | None = 612
     height: int | None = 792
     image_key: str | None = None
+    rendered_image_bytes: bytes | None = field(default=None, repr=False)
     status: str = OCRPageStatus.COMPLETED.value
     block_count: int = 0
     has_warnings: bool = False
@@ -87,6 +94,30 @@ class OcrEngineStrategy(ABC):
     def process_pdf(self, pdf_bytes: bytes) -> list[OcrPageResult]:
         """Extract page text blocks from a PDF byte stream."""
 
+    def process_image(self, image_bytes: bytes) -> list[OcrPageResult]:
+        """Default image path for simple test strategies; production engines override it."""
+        return self.process_pdf(image_bytes)
+
+
+def _load_image_as_png(image_bytes: bytes) -> tuple[Any, int, int, bytes]:
+    """Decode one source image and create its non-public PNG review rendition."""
+    try:
+        from PIL import Image
+    except ImportError as err:
+        msg = "Pillow is required to decode uploaded JPEG/PNG documents"
+        raise RuntimeError(msg) from err
+
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as source_image:
+            source_image.load()
+            normalized_image = source_image.convert("RGB")
+        width, height = normalized_image.size
+        output = io.BytesIO()
+        normalized_image.save(output, format="PNG")
+        return normalized_image, width, height, output.getvalue()
+    except Exception as exc:
+        raise RuntimeError(f"Uploaded image could not be decoded: {exc}") from exc
+
 
 class _PdfPageRenderer:
     """Shared PyMuPDF utilities for native OCR strategies."""
@@ -103,18 +134,24 @@ class _PdfPageRenderer:
             raise RuntimeError(msg) from err
         return fitz
 
-    def _text_layer_page(self, page: Any, page_number: int) -> OcrPageResult | None:
+    def _text_layer_page(
+        self,
+        page: Any,
+        page_number: int,
+        pix: Any,
+    ) -> OcrPageResult | None:
         text = page.get_text("text")
         if not has_usable_text_layer(text, self.text_layer_min_characters):
             return None
 
-        rect = page.rect
-        return build_text_layer_page(
+        result = build_text_layer_page(
             page_number=page_number,
             text=text,
-            width=int(round(rect.width)),
-            height=int(round(rect.height)),
+            width=int(pix.width),
+            height=int(pix.height),
         )
+        result.rendered_image_bytes = pix.tobytes("png")
+        return result
 
     def _render_page(self, page: Any) -> Any:
         """Render an RGB page at the shared OCR/training DPI."""
@@ -133,8 +170,10 @@ class PaddleOcrStrategy(_PdfPageRenderer, OcrEngineStrategy):
         self,
         render_dpi: int = OCR_RENDER_DPI,
         text_layer_min_characters: int = OCR_TEXT_LAYER_MIN_CHARACTERS,
+        preprocess_options: OcrPreprocessOptions | None = None,
     ) -> None:
         super().__init__(render_dpi, text_layer_min_characters)
+        self.preprocess_options = preprocess_options or OcrPreprocessOptions()
 
     def process_pdf(self, pdf_bytes: bytes) -> list[OcrPageResult]:
         try:
@@ -152,17 +191,18 @@ class PaddleOcrStrategy(_PdfPageRenderer, OcrEngineStrategy):
 
             with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
                 for page_number, page in enumerate(document, start=1):
-                    text_page = self._text_layer_page(page, page_number)
+                    pix = self._render_page(page)
+                    text_page = self._text_layer_page(page, page_number, pix)
                     if text_page is not None:
                         pages.append(text_page)
                         continue
 
                     started = time.perf_counter()
-                    pix = self._render_page(page)
                     image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
                         pix.height, pix.width, pix.n
                     )
-                    results = ocr.ocr(image, cls=True)
+                    ocr_image = preprocess_ocr_image(image, self.preprocess_options)
+                    results = ocr.ocr(ocr_image, cls=True)
                     blocks = _paddle_blocks(results, page_number, pix.width, pix.height)
                     elapsed_ms = int((time.perf_counter() - started) * 1000)
                     for block in blocks:
@@ -172,12 +212,40 @@ class PaddleOcrStrategy(_PdfPageRenderer, OcrEngineStrategy):
                             page_number=page_number,
                             width=pix.width,
                             height=pix.height,
+                            rendered_image_bytes=pix.tobytes("png"),
                             blocks=blocks,
                         )
                     )
             return pages
         except Exception as exc:
             raise RuntimeError(f"PaddleOCR execution failed: {exc}") from exc
+
+    def process_image(self, image_bytes: bytes) -> list[OcrPageResult]:
+        """OCR a JPG/PNG directly without a PDF render step."""
+        try:
+            import numpy as np
+            from paddleocr import PaddleOCR
+
+            image, width, height, rendered_image_bytes = _load_image_as_png(image_bytes)
+            started = time.perf_counter()
+            ocr = PaddleOCR(use_angle_cls=True, lang="vi", show_log=False)
+            ocr_image = preprocess_ocr_image(np.asarray(image), self.preprocess_options)
+            results = ocr.ocr(ocr_image, cls=True)
+            blocks = _paddle_blocks(results, 1, width, height)
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            for block in blocks:
+                block.processing_time_ms = elapsed_ms
+            return [
+                OcrPageResult(
+                    page_number=1,
+                    width=width,
+                    height=height,
+                    rendered_image_bytes=rendered_image_bytes,
+                    blocks=blocks,
+                )
+            ]
+        except Exception as exc:
+            raise RuntimeError(f"PaddleOCR image execution failed: {exc}") from exc
 
 
 class TesseractOcrStrategy(_PdfPageRenderer, OcrEngineStrategy):
@@ -187,8 +255,10 @@ class TesseractOcrStrategy(_PdfPageRenderer, OcrEngineStrategy):
         self,
         render_dpi: int = OCR_RENDER_DPI,
         text_layer_min_characters: int = OCR_TEXT_LAYER_MIN_CHARACTERS,
+        preprocess_options: OcrPreprocessOptions | None = None,
     ) -> None:
         super().__init__(render_dpi, text_layer_min_characters)
+        self.preprocess_options = preprocess_options or OcrPreprocessOptions()
 
     def process_pdf(self, pdf_bytes: bytes) -> list[OcrPageResult]:
         try:
@@ -204,14 +274,22 @@ class TesseractOcrStrategy(_PdfPageRenderer, OcrEngineStrategy):
 
             with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
                 for page_number, page in enumerate(document, start=1):
-                    text_page = self._text_layer_page(page, page_number)
+                    pix = self._render_page(page)
+                    text_page = self._text_layer_page(page, page_number, pix)
                     if text_page is not None:
                         pages.append(text_page)
                         continue
 
                     started = time.perf_counter()
-                    pix = self._render_page(page)
                     image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                    if self.preprocess_options.enabled:
+                        import numpy as np
+
+                        processed = preprocess_ocr_image(
+                            np.asarray(image),
+                            self.preprocess_options,
+                        )
+                        image = Image.fromarray(processed)
                     data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
                     blocks = _tesseract_blocks(data, page_number)
                     elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -222,12 +300,44 @@ class TesseractOcrStrategy(_PdfPageRenderer, OcrEngineStrategy):
                             page_number=page_number,
                             width=pix.width,
                             height=pix.height,
+                            rendered_image_bytes=pix.tobytes("png"),
                             blocks=blocks,
                         )
                     )
             return pages
         except Exception as exc:
             raise RuntimeError(f"Tesseract execution failed: {exc}") from exc
+
+    def process_image(self, image_bytes: bytes) -> list[OcrPageResult]:
+        """OCR a JPG/PNG directly without a PDF render step."""
+        try:
+            import pytesseract
+
+            image, width, height, rendered_image_bytes = _load_image_as_png(image_bytes)
+            started = time.perf_counter()
+            if self.preprocess_options.enabled:
+                import numpy as np
+                from PIL import Image
+
+                image = Image.fromarray(
+                    preprocess_ocr_image(np.asarray(image), self.preprocess_options)
+                )
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            blocks = _tesseract_blocks(data, 1)
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            for block in blocks:
+                block.processing_time_ms = elapsed_ms
+            return [
+                OcrPageResult(
+                    page_number=1,
+                    width=width,
+                    height=height,
+                    rendered_image_bytes=rendered_image_bytes,
+                    blocks=blocks,
+                )
+            ]
+        except Exception as exc:
+            raise RuntimeError(f"Tesseract image execution failed: {exc}") from exc
 
 
 def _paddle_blocks(
@@ -295,6 +405,9 @@ class FallbackMockOcrStrategy(OcrEngineStrategy):
         return [
             OcrPageResult(
                 page_number=1,
+                width=1,
+                height=1,
+                rendered_image_bytes=TEST_PAGE_PNG,
                 blocks=[
                     OcrBlockResult(
                         page_number=1,
@@ -315,6 +428,11 @@ class FallbackMockOcrStrategy(OcrEngineStrategy):
         ]
 
 
+    def process_image(self, image_bytes: bytes) -> list[OcrPageResult]:
+        """Return deterministic page metadata for explicitly injected test OCR only."""
+        return self.process_pdf(image_bytes)
+
+
 class OcrEngineService:
     """Select primary/fallback engines and apply review threshold consistently."""
 
@@ -325,13 +443,23 @@ class OcrEngineService:
         confidence_threshold: float | None = None,
     ) -> None:
         settings = get_settings()
+        preprocess_options = OcrPreprocessOptions(
+            enabled=settings.ocr_preprocess_enabled,
+            deskew=settings.ocr_preprocess_deskew,
+            denoise_kernel_size=settings.ocr_preprocess_denoise_kernel_size,
+            binarize=settings.ocr_preprocess_binarize,
+            adaptive_threshold_block_size=settings.ocr_preprocess_adaptive_threshold_block_size,
+            adaptive_threshold_c=settings.ocr_preprocess_adaptive_threshold_c,
+        )
         self.primary_engine = primary_engine or PaddleOcrStrategy(
             settings.ocr_render_dpi,
             settings.ocr_text_layer_min_characters,
+            preprocess_options,
         )
         self.fallback_engine = fallback_engine or TesseractOcrStrategy(
             settings.ocr_render_dpi,
             settings.ocr_text_layer_min_characters,
+            preprocess_options,
         )
         self.mock_engine = FallbackMockOcrStrategy()
         self.confidence_threshold = (
@@ -366,6 +494,50 @@ class OcrEngineService:
                     )
                     logger.error(
                         "all_ocr_engines_failed",
+                        primary=str(primary_err),
+                        fallback=str(fallback_err),
+                    )
+                    raise RuntimeError(msg) from fallback_err
+
+        for page in pages:
+            page.has_warnings = False
+            for block in page.blocks:
+                if block.confidence < self.confidence_threshold:
+                    block.requires_review = True
+                    block.review_status = OCRReviewStatus.PENDING.value
+                    page.has_warnings = True
+                else:
+                    block.requires_review = False
+                    block.review_status = OCRReviewStatus.APPROVED.value
+            page.block_count = len(page.blocks)
+        return pages
+
+    def process_image(self, image_bytes: bytes, allow_mock: bool = False) -> list[OcrPageResult]:
+        """Run primary then fallback OCR directly on a validated JPEG or PNG."""
+        try:
+            pages = self.primary_engine.process_image(image_bytes)
+            logger.info("ocr_image_processed_with_primary_engine", engine="paddleocr")
+        except Exception as primary_err:
+            logger.warning("primary_image_ocr_failed_trying_fallback", error=str(primary_err))
+            try:
+                pages = self.fallback_engine.process_image(image_bytes)
+                logger.info("ocr_image_processed_with_fallback_engine", engine="tesseract")
+            except Exception as fallback_err:
+                if allow_mock:
+                    logger.warning(
+                        "all_image_ocr_engines_failed_using_mock_explicit_opt_in",
+                        primary=str(primary_err),
+                        fallback=str(fallback_err),
+                    )
+                    pages = self.mock_engine.process_image(image_bytes)
+                else:
+                    msg = (
+                        "All OCR engines failed. "
+                        f"Primary (PaddleOCR): {primary_err}. "
+                        f"Fallback (Tesseract): {fallback_err}."
+                    )
+                    logger.error(
+                        "all_image_ocr_engines_failed",
                         primary=str(primary_err),
                         fallback=str(fallback_err),
                     )

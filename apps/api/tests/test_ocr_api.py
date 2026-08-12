@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from base64 import b64decode
+
 import pytest
 from httpx import AsyncClient
 
@@ -10,7 +12,13 @@ from app.models.document_version import DocumentVersion
 from app.models.ocr_block import OCRBlock
 from app.models.ocr_page import OCRPage
 from app.models.user import User
+from app.services.storage import get_storage_service
 from tests.conftest import auth_headers_for
+
+PAGE_PNG = b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JHvsAAAAASUVORK5CYII="
+)
+PAGE_IMAGE_KEY = "documents/pages/ver_ocr_api_01/1.png"
 
 
 @pytest.fixture
@@ -28,7 +36,7 @@ async def sample_ocr_version(db_session_factory, staff_user: User) -> tuple[str,
             title="Quyết định OCR Review API Test",
             type="QUYET_DINH",
             status="DRAFT",
-            scope="PUBLIC",
+            scope="INTERNAL",
             author_id=staff_user.id,
         )
         ver = DocumentVersion(
@@ -52,6 +60,7 @@ async def sample_ocr_version(db_session_factory, staff_user: User) -> tuple[str,
             status="COMPLETED",
             block_count=2,
             has_warnings=True,
+            image_key=PAGE_IMAGE_KEY,
         )
         suspicious_block = OCRBlock(
             id=suspicious_block_id,
@@ -82,6 +91,7 @@ async def sample_ocr_version(db_session_factory, staff_user: User) -> tuple[str,
         session.add_all([doc, ver, ocr_page, suspicious_block, clean_block])
         await session.commit()
 
+    await get_storage_service().upload_file(PAGE_PNG, PAGE_IMAGE_KEY, content_type="image/png")
     return doc_id, ver_id, suspicious_block_id, clean_block_id
 
 
@@ -125,6 +135,43 @@ async def test_get_version_ocr_detail_and_filtering(
     blocks_app = resp_app.json()["data"]["blocks"]
     assert len(blocks_app) == 1
     assert blocks_app[0]["id"] == clean_block_id
+
+
+@pytest.mark.asyncio
+async def test_get_ocr_page_image_with_scope_checked_backend_proxy(
+    api_client: AsyncClient,
+    staff_user: User,
+    sample_ocr_version: tuple[str, str, str, str],
+) -> None:
+    """Page image bytes are returned only after document scope authorization."""
+    doc_id, ver_id, _, _ = sample_ocr_version
+
+    response = await api_client.get(
+        f"/api/v1/documents/{doc_id}/versions/{ver_id}/ocr/pages/1/image",
+        headers=auth_headers_for(staff_user),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.content == PAGE_PNG
+
+
+@pytest.mark.asyncio
+async def test_get_ocr_page_image_rejects_user_outside_document_scope(
+    api_client: AsyncClient,
+    student_user: User,
+    sample_ocr_version: tuple[str, str, str, str],
+) -> None:
+    """Storage cannot bypass document scope enforced by the API boundary."""
+    doc_id, ver_id, _, _ = sample_ocr_version
+
+    response = await api_client.get(
+        f"/api/v1/documents/{doc_id}/versions/{ver_id}/ocr/pages/1/image",
+        headers=auth_headers_for(student_user),
+    )
+
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio

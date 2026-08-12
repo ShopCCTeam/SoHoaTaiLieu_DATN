@@ -54,7 +54,8 @@ async def test_validate_upload_file_stream_success() -> None:
         file=BytesIO(VALID_PDF_BYTES),
         headers={"content-type": "application/pdf"},
     )
-    full_bytes, checksum, total_bytes = await validate_upload_file(upload_file)
+    full_bytes, checksum, total_bytes, detected_format = await validate_upload_file(upload_file)
     assert full_bytes == VALID_PDF_BYTES
     assert len(checksum) == 64
     assert total_bytes == len(VALID_PDF_BYTES)
+    assert detected_format == "pdf"

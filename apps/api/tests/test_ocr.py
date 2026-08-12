@@ -22,6 +22,7 @@ from app.services.ocr_engine import (
     build_text_layer_page,
     has_usable_text_layer,
 )
+from app.worker import tasks as tasks_module
 from app.worker.tasks import _async_process_document, process_document_task
 
 
@@ -145,7 +146,9 @@ def test_paddleocr_and_tesseract_error_handling() -> None:
 
 @pytest.mark.asyncio
 async def test_celery_process_document_task_integration(
-    db_session_factory, staff_user: User
+    db_session_factory,
+    staff_user: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test process_document_task persists OCRPage & OCRBlock records into DB."""
     async with db_session_factory() as session:
@@ -187,9 +190,22 @@ async def test_celery_process_document_task_integration(
         "documents/raw/doc_ocr_task_01/ver_ocr_task_01.pdf",
     )
 
+    indexed_while_job_statuses: list[str] = []
+    original_index = tasks_module._async_index_document_chunks
+
+    async def _index_while_job_processing(index_version_id: str) -> dict[str, object]:
+        async with db_session_factory() as session:
+            indexed_job = await session.get(Job, "job_ocr_task_01")
+            assert indexed_job is not None
+            indexed_while_job_statuses.append(indexed_job.status)
+        return await original_index(index_version_id)
+
+    monkeypatch.setattr(tasks_module, "_async_index_document_chunks", _index_while_job_processing)
+
     # Run async pipeline
     res = await _async_process_document("job_ocr_task_01", "ver_ocr_task_01")
     assert res["status"] == "SUCCEEDED"
+    assert indexed_while_job_statuses == ["PROCESSING"]
 
     # Verify DB persistence
     async with db_session_factory() as session:
@@ -203,6 +219,10 @@ async def test_celery_process_document_task_integration(
         )
         pages = pages_res.scalars().all()
         assert len(pages) > 0
+        assert pages[0].image_key == "documents/pages/ver_ocr_task_01/1.png"
+
+        stored_page_image = await get_storage_service().download_file(pages[0].image_key)
+        assert stored_page_image.startswith(b"\x89PNG\r\n\x1a\n")
 
         blocks_res = await session.execute(
             select(OCRBlock).where(OCRBlock.version_id == "ver_ocr_task_01")

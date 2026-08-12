@@ -18,6 +18,7 @@ import type {
   DocumentVersion as ApiDocumentVersion,
   User as ApiUser,
   OCRBlock as ApiOCRBlock,
+  OCRPage as ApiOCRPage,
   Citation as ApiCitation,
   Job as ApiJob,
 } from "@ctsv/contracts";
@@ -26,6 +27,7 @@ import type {
   DocumentVersion,
   User,
   OCRBlock,
+  OCRPage,
   Citation,
   Job,
   UserRole,
@@ -91,24 +93,34 @@ export function apiDocumentVersionToDomain(dto: ApiDocumentVersion): DocumentVer
   };
 }
 
+// ---- OCRPage ----
+
+export function apiOCRPageToDomain(dto: ApiOCRPage): OCRPage {
+  return {
+    id: dto.id,
+    pageNumber: dto.page_number,
+    width: dto.width,
+    height: dto.height,
+    imageKey: dto.image_key,
+  };
+}
+
 // ---- OCRBlock ----
 
 export function apiOCRBlockToDomain(dto: ApiOCRBlock): OCRBlock {
   const bbox = (dto.bbox ?? [0, 0, 0, 0]) as [number, number, number, number];
   return {
     id: dto.id,
-    ocrJobId: dto.ocr_job_id,
+    ocrJobId: dto.job_id ?? "",
     pageNumber: dto.page_number,
     bbox,
-    text: dto.text,
+    text: dto.text_content,
     confidence: dto.confidence,
     requiresReview: dto.requires_review ?? false,
     reviewStatus: dto.review_status,
     reviewedBy: dto.reviewed_by ?? undefined,
     reviewedAt: dto.reviewed_at ?? undefined,
-    isEdited: dto.is_edited ?? false,
-    editedBy: dto.edited_by ?? undefined,
-    editedAt: dto.edited_at ?? undefined,
+    isEdited: dto.edited_text != null,
     originalText: dto.original_text ?? undefined,
     processingTimeMs: dto.processing_time_ms ?? 0,
   };

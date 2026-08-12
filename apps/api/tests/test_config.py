@@ -12,12 +12,17 @@ def test_default_settings_for_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     # Clear test env vars set by conftest.
     monkeypatch.delenv("JWT_ACCESS_TOKEN_TTL_SECONDS", raising=False)
     monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.delenv("EMBEDDING_API_URL", raising=False)
+    monkeypatch.delenv("LLM_OLLAMA_MODEL_NAME", raising=False)
     get_settings.cache_clear()
     settings = Settings()  # type: ignore[call-arg]
     assert settings.app_env == "development"
     assert settings.postgres_host == "localhost"
     assert settings.jwt_algorithm == "HS256"
     assert settings.jwt_access_token_ttl_seconds == 900
+    assert settings.embedding_api_url == "http://localhost:11434/api/embed"
+    assert settings.llm_ollama_model_name == "qwen2.5:7b"
+    assert settings.ocr_preprocess_enabled is False
 
 
 def test_postgres_url_built_correctly() -> None:

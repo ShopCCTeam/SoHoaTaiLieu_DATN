@@ -30,8 +30,13 @@ dependencies = [
     "minio>=7.2.0,<8",            # MinIO S3 storage client (used by MinioStorageService)
     # OCR — PDF→image rendering (pure-Python wheel, no system binary needed)
     "pymupdf>=1.24.0,<2",
+        # LangChain RAG orchestration (versions are frozen in uv.lock)
+    "langchain>=0.3.0,<0.4",
+    "langchain-community>=0.3.0,<0.4",
+    "langchain-ollama>=0.2.0,<0.3",
     # HTTP
     "httpx>=0.28.0,<0.29",
+
     # Utilities
     "python-multipart>=0.0.20,<0.1",
     "orjson>=3.10.0,<4",
@@ -46,8 +51,10 @@ dependencies = [
 ocr = [
     "paddlepaddle>=2.6.0,<3",
     "paddleocr>=2.8.0,<3",
+    "numpy>=1.26.0,<3",
     "pytesseract>=0.3.10,<0.4",
     "pillow>=10.4.0,<12",
+    "setuptools>=69.0.0,<81",
 ]
 dev = [
     "ruff>=0.7.0,<0.8",
@@ -115,7 +122,8 @@ no_implicit_optional = true
 # fitz (PyMuPDF) and Pillow ship no py.typed marker; OCR engines are an
 # optional extra not installed in the CI/type-check env.
 [[tool.mypy.overrides]]
-module = ["fitz", "PIL", "PIL.*"]
+module = ["cv2", "fitz", "PIL", "PIL.*"]
+
 ignore_missing_imports = true
 
 # -------- pytest --------

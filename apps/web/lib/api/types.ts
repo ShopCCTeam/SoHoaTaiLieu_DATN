@@ -12,6 +12,7 @@ import type {
   DocumentVersion as ApiDocumentVersion,
   User as ApiUser,
   OCRBlock as ApiOCRBlock,
+  OCRPage as ApiOCRPage,
   Citation as ApiCitation,
   Job as ApiJob,
   DocumentStatusEnum,
@@ -72,6 +73,14 @@ export interface DocumentVersion {
   changeSummary?: string | null;
   createdBy?: string;
   createdAt: string;
+}
+
+export interface OCRPage {
+  id: ApiOCRPage["id"];
+  pageNumber: ApiOCRPage["page_number"];
+  width: ApiOCRPage["width"];
+  height: ApiOCRPage["height"];
+  imageKey?: ApiOCRPage["image_key"];
 }
 
 export interface OCRBlock {

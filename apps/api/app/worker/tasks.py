@@ -26,6 +26,19 @@ from app.services.storage import get_storage_service
 logger = get_logger(__name__)
 
 
+def _source_format_from_file_url(file_url: str) -> str:
+    """Derive the validated raw upload format from the service-controlled object key."""
+    suffix = file_url.rsplit(".", maxsplit=1)[-1].lower()
+    if suffix == "pdf":
+        return "pdf"
+    if suffix in {"jpg", "jpeg"}:
+        return "jpeg"
+    if suffix == "png":
+        return "png"
+    msg = f"Unsupported source file extension in stored object URL: {file_url}"
+    raise RuntimeError(msg)
+
+
 def run_async(coro: Any) -> Any:
     """Helper running an async coroutine inside Celery worker thread or eager context."""
     try:
@@ -42,7 +55,7 @@ def run_async(coro: Any) -> Any:
 
 @shared_task(name="app.worker.tasks.process_document_task", bind=True, max_retries=3)  # type: ignore[untyped-decorator]
 def process_document_task(self: Any, job_id: str, version_id: str) -> Any:
-    """Async task for processing uploaded PDF document version with OCR.
+    """Async task for processing an uploaded PDF/JPEG/PNG document version with OCR.
 
     State Machine Transitions:
       - Job: QUEUED -> PROCESSING -> SUCCEEDED / FAILED
@@ -82,19 +95,25 @@ async def _async_process_document(job_id: str, version_id: str) -> dict[str, Any
             version.ocr_status = "PROCESSING"
             await session.commit()
 
-            # 2. Download PDF bytes from StorageService.
-            # No silent placeholder: if download fails the exception propagates to the
-            # outer handler and the job is marked FAILED (correct behaviour).
+            # 2. Download validated source bytes from storage. The raw object extension is
+            # service-controlled at upload time, so it safely selects the PDF/image OCR path.
+            # No silent placeholder: a download failure marks the job FAILED.
             storage = get_storage_service()
-            object_key = f"documents/raw/{version.document_id}/{version.id}.pdf"
+            source_format = _source_format_from_file_url(version.file_url)
+            source_extension = "jpg" if source_format == "jpeg" else source_format
+            object_key = f"documents/raw/{version.document_id}/{version.id}.{source_extension}"
             file_bytes = await storage.download_file(object_key)
 
             job.progress = 30
             await session.commit()
 
-            # 3. Run OCR Processing
+            # 3. PDFs retain the mandatory 300-DPI render pipeline; validated source images
+            # are OCRed directly as one page and normalized to a private PNG review artifact.
             ocr_service = OcrEngineService()
-            ocr_pages_res = ocr_service.process_pdf(file_bytes)
+            if source_format == "pdf":
+                ocr_pages_res = ocr_service.process_pdf(file_bytes)
+            else:
+                ocr_pages_res = ocr_service.process_image(file_bytes)
 
             job.progress = 70
             await session.commit()
@@ -105,8 +124,21 @@ async def _async_process_document(job_id: str, version_id: str) -> dict[str, Any
 
             has_suspicious_blocks = False
 
-            # 5. Persist OCRPages and OCRBlocks
+            # 5. Persist every rendered 300-DPI page image before saving its OCR metadata.
+            # `image_key` stores the object key, not a public URL, so review access remains
+            # governed by the backend document scope check.
             for page_res in ocr_pages_res:
+                if page_res.rendered_image_bytes is None:
+                    msg = f"OCR page {page_res.page_number} is missing its rendered PNG image"
+                    raise RuntimeError(msg)
+
+                page_res.image_key = f"documents/pages/{version.id}/{page_res.page_number}.png"
+                await storage.upload_file(
+                    page_res.rendered_image_bytes,
+                    page_res.image_key,
+                    content_type="image/png",
+                )
+
                 page_id = f"page_{uuid.uuid4().hex[:24]}"
                 ocr_page = OCRPage(
                     id=page_id,
@@ -143,20 +175,27 @@ async def _async_process_document(job_id: str, version_id: str) -> dict[str, Any
                     )
                     session.add(ocr_block)
 
-            # 6. Complete processing
-            job.progress = 100
-            job.status = "SUCCEEDED"
-            job.finished_at = datetime.now(UTC)
-
+            # 6. Commit OCR rows before indexing so the independent indexing session can read
+            # them. The job deliberately stays PROCESSING until indexing succeeds.
+            job.progress = 85
             version.ocr_status = "SUCCEEDED"
             version.requires_review = has_suspicious_blocks
             version.status = "UNDER_REVIEW"
             await session.commit()
 
-            # Trigger indexing chunks after OCR succeeds.
             # No silent swallow: if indexing fails the exception propagates to the outer
             # handler, marking the job FAILED instead of SUCCEEDED with empty data.
-            await _async_index_document_chunks(version_id)
+            index_result = await _async_index_document_chunks(version_id)
+            if index_result.get("status") != "SUCCEEDED":
+                raise RuntimeError(
+                    f"Document chunk indexing failed: {index_result.get('error', 'unknown error')}"
+                )
+
+            # 7. Complete the encompassing job only after indexing is durable.
+            job.progress = 100
+            job.status = "SUCCEEDED"
+            job.finished_at = datetime.now(UTC)
+            await session.commit()
 
             logger.info(
                 "process_document_task_succeeded",

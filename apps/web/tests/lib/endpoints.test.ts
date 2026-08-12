@@ -28,6 +28,12 @@ describe("API_ENDPOINTS — path builders", () => {
     expect(API_ENDPOINTS.JOBS.STATUS("job_789")).toBe("/jobs/job_789");
   });
 
+  it("trả đúng đường dẫn ảnh trang OCR của document version", () => {
+    expect(API_ENDPOINTS.DOCUMENTS.OCR_PAGE_IMAGE("doc_123", "ver_456", 3)).toBe(
+      "/documents/doc_123/versions/ver_456/ocr/pages/3/image"
+    );
+  });
+
   it("trả đúng đường dẫn UPDATE_BLOCK cho job và document version", () => {
     expect(API_ENDPOINTS.OCR.UPDATE_BLOCK("job_789", "blk_001")).toBe(
       "/jobs/job_789/blocks/blk_001"

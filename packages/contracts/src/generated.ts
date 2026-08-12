@@ -255,7 +255,8 @@ export interface paths {
         /**
          * Upload tài liệu mới (trả về job, OCR chạy async)
          * @description - Header `Idempotency-Key: <uuid>` BẮT BUỘC.
-         *     - PDF ≤ 50MB, MIME = application/pdf, magic bytes %PDF-.
+         *     - PDF â‰¤ 50MB; JPEG/PNG â‰¤ 10MB; MIME vÃ  magic bytes pháº£i khá»›p `application/pdf`, `image/jpeg` hoáº·c `image/png`.
+         *
          *     - Trả 202 Accepted + job_id (FE poll `/jobs/{id}`).
          */
         post: {
@@ -272,7 +273,7 @@ export interface paths {
                     "multipart/form-data": {
                         /**
                          * Format: binary
-                         * @description PDF ≤ 50MB
+                         * @description PDF â‰¤ 50MB; JPEG/PNG â‰¤ 10MB; MIME vÃ  magic bytes pháº£i khá»›p.
                          */
                         file: string;
                         title: string;
@@ -303,6 +304,304 @@ export interface paths {
                 409: components["responses"]["Conflict"];
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}/versions/{vid}/ocr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lấy kết quả OCR (pages & blocks) của phiên bản tài liệu */
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    requires_review?: boolean;
+                    review_status?: components["schemas"]["OCRReviewStatus"];
+                };
+                header?: never;
+                path: {
+                    id: string;
+                    vid: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SuccessEnvelope"] & {
+                            data?: {
+                                version_id: string;
+                                ocr_status: string;
+                                requires_review: boolean;
+                                total_blocks: number;
+                                pending_reviews: number;
+                                pages: components["schemas"]["OCRPage"][];
+                                blocks: components["schemas"]["OCRBlock"][];
+                            };
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}/versions/{vid}/ocr/pages/{page}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lấy ảnh PNG render 300 DPI của một trang OCR
+         * @description Backend kiểm tra quyền đọc tài liệu và document scope trước khi lấy object
+         *     `image_key` từ storage. Response là bytes PNG qua API; không trả public URL,
+         *     presigned URL hoặc storage credential.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    vid: string;
+                    page: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description PNG trang OCR */
+                200: {
+                    headers: {
+                        /** @description Không cho shared cache lưu ảnh tài liệu có kiểm soát scope. */
+                        "Cache-Control"?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "image/png": string;
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}/versions/{vid}/ocr/blocks/{bid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Duyệt hoặc chỉnh sửa một block OCR */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    vid: string;
+                    bid: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        review_status: components["schemas"]["OCRReviewStatus"];
+                        text?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK — trả về OCR block đã được cập nhật */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SuccessEnvelope"] & {
+                            data?: components["schemas"]["OCRBlock"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        trace?: never;
+    };
+    "/documents/{id}/versions/{vid}/ocr/batch-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Duyệt hàng loạt danh sách các block OCR hoặc chấp nhận toàn bộ block pending */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    vid: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @default false */
+                        accept_all_pending?: boolean;
+                        actions?: {
+                            block_id: string;
+                            review_status: components["schemas"]["OCRReviewStatus"];
+                            text?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description OK — trả về kết quả batch review */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SuccessEnvelope"] & {
+                            data?: {
+                                reviewed_count: number;
+                                remaining_pending_count: number;
+                                version_requires_review: boolean;
+                            };
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tìm kiếm tài liệu RRF hybrid (Vector + Full-text search) */
+        get: {
+            parameters: {
+                query: {
+                    q: string;
+                    scope?: components["schemas"]["DocumentScope"];
+                    type?: string;
+                    alpha?: number;
+                    top_k?: number;
+                    page?: number;
+                    size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK — Kết quả tìm kiếm tài liệu RRF hybrid */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SuccessEnvelope"] & {
+                            data?: components["schemas"]["SearchResponse"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        put?: never;
+        /** Tìm kiếm tài liệu RRF hybrid qua POST request body */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SearchQueryRequest"];
+                };
+            };
+            responses: {
+                /** @description OK — Kết quả tìm kiếm tài liệu RRF hybrid */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SuccessEnvelope"] & {
+                            data?: components["schemas"]["SearchResponse"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
                 422: components["responses"]["ValidationError"];
             };
         };
@@ -443,31 +742,76 @@ export interface components {
         };
         OCRBlock: {
             id: string;
-            ocr_job_id: string;
+            version_id: string;
+            page_id?: string | null;
             page_number: number;
-            /** @description [x_min, y_min, x_max, y_max] trong PDF coordinate */
-            bbox?: number[];
-            text: string;
+            block_index: number;
+            text_content: string;
             confidence: number;
-            /**
-             * @description True khi confidence < threshold (mặc định 0.9).
-             *     Cờ này quyết định version `requires_review=true`.
-             */
+            /** @description [x_min, y_min, x_max, y_max] theo pixel ảnh render 300 DPI */
+            bbox: number[];
             requires_review: boolean;
             review_status: components["schemas"]["OCRReviewStatus"];
+            edited_text?: string | null;
+            original_text?: string | null;
+            job_id?: string | null;
             reviewed_by?: string | null;
             /** Format: date-time */
             reviewed_at?: string | null;
-            /**
-             * @description True khi `text` đã khác `original_text` (sửa lỗi).
-             *     Nên giữ cho compatibility, nhưng review mới dùng `review_status`.
-             */
-            is_edited?: boolean;
-            edited_by?: string | null;
-            /** Format: date-time */
-            edited_at?: string | null;
-            original_text?: string | null;
             processing_time_ms?: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OCRPage: {
+            id: string;
+            version_id: string;
+            page_number: number;
+            width?: number | null;
+            height?: number | null;
+            /** @description Object key nội bộ; chỉ dùng để quyết định có ảnh, không hiển thị cho client. */
+            image_key?: string | null;
+            status: string;
+            block_count: number;
+            has_warnings: boolean;
+            /** Format: date-time */
+            created_at: string;
+        };
+        SearchResultItem: {
+            chunk_id: string;
+            document_id: string;
+            version_id: string;
+            document_title: string;
+            document_scope: string;
+            document_type: string;
+            page_number: number;
+            chunk_index: number;
+            text: string;
+            bbox: number[];
+            score: number;
+            vector_score?: number | null;
+            fulltext_score?: number | null;
+        };
+        SearchResponse: {
+            items: components["schemas"]["SearchResultItem"][];
+            total: number;
+            page: number;
+            size: number;
+            query: string;
+        };
+        SearchQueryRequest: {
+            query: string;
+            scope?: components["schemas"]["DocumentScope"];
+            doc_type?: string;
+            /** @default 0.5 */
+            alpha: number;
+            /** @default 10 */
+            top_k: number;
+            /** @default 1 */
+            page: number;
+            /** @default 10 */
+            size: number;
         };
         Citation: {
             document_id: string;

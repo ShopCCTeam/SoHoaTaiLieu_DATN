@@ -24,6 +24,7 @@ from app.modules.documents.schemas import (
     DocumentUpdateSchema,
     OCRVersionDetailData,
 )
+from app.modules.documents.security import ALLOWED_MIME_TYPES, FILE_EXTENSION_BY_FORMAT, FileFormat
 from app.services.storage import get_storage_service
 from app.worker.tasks import process_document_task
 
@@ -100,8 +101,9 @@ async def create_document(
     tags: list[str] | None = None,
     change_summary: str | None = None,
     request_id: str = "",
+    source_format: FileFormat = "pdf",
 ) -> tuple[str, str, str]:
-    """Upload new document and start async OCR job."""
+    """Upload a validated document and start its asynchronous OCR job."""
     # 1. Check Idempotency Key
     if idempotency_key:
         job_stmt = select(Job).where(Job.idempotency_key == idempotency_key)
@@ -133,9 +135,14 @@ async def create_document(
     version_id = f"ver_{uuid.uuid4().hex[:24]}"
     job_id = f"job_{uuid.uuid4().hex[:24]}"
 
-    object_key = f"documents/raw/{doc_id}/{version_id}.pdf"
+    file_extension = FILE_EXTENSION_BY_FORMAT[source_format]
+    object_key = f"documents/raw/{doc_id}/{version_id}.{file_extension}"
     storage = get_storage_service()
-    file_url = await storage.upload_file(file_bytes, object_key, content_type="application/pdf")
+    file_url = await storage.upload_file(
+        file_bytes,
+        object_key,
+        content_type=ALLOWED_MIME_TYPES[source_format],
+    )
 
     # Insert Document
     doc = Document(
@@ -269,8 +276,9 @@ async def create_document_version(
     idempotency_key: str,
     change_summary: str | None = None,
     request_id: str = "",
+    source_format: FileFormat = "pdf",
 ) -> tuple[str, str, str]:
-    """Upload new version for an existing document."""
+    """Upload a validated version for an existing document."""
     if idempotency_key:
         job_stmt = select(Job).where(Job.idempotency_key == idempotency_key)
         existing_job_res = await session.execute(job_stmt)
@@ -291,9 +299,14 @@ async def create_document_version(
     version_id = f"ver_{uuid.uuid4().hex[:24]}"
     job_id = f"job_{uuid.uuid4().hex[:24]}"
 
-    object_key = f"documents/raw/{document.id}/{version_id}.pdf"
+    file_extension = FILE_EXTENSION_BY_FORMAT[source_format]
+    object_key = f"documents/raw/{document.id}/{version_id}.{file_extension}"
     storage = get_storage_service()
-    file_url = await storage.upload_file(file_bytes, object_key, content_type="application/pdf")
+    file_url = await storage.upload_file(
+        file_bytes,
+        object_key,
+        content_type=ALLOWED_MIME_TYPES[source_format],
+    )
 
     ver = DocumentVersion(
         id=version_id,
@@ -451,6 +464,20 @@ async def get_version_ocr_detail(
         pages=list(pages),
         blocks=list(blocks),
     )
+
+
+async def get_ocr_page_by_number(
+    session: AsyncSession,
+    version: DocumentVersion,
+    page_number: int,
+) -> OCRPage | None:
+    """Return one OCR page belonging to the already-authorized version."""
+    page_stmt = select(OCRPage).where(
+        OCRPage.version_id == version.id,
+        OCRPage.page_number == page_number,
+    )
+    page_result = await session.execute(page_stmt)
+    return page_result.scalar_one_or_none()
 
 
 async def review_single_ocr_block(

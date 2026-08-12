@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.errors import forbidden, not_found
+from app.core.errors import not_found
 from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
 from app.models.user import User
@@ -17,10 +17,10 @@ from app.modules.chat.schemas import (
     ChatQueryResponse,
     CitationSchema,
 )
-from app.modules.documents.dependencies import get_allowed_scopes_for_user
 from app.modules.search.schemas import SearchResultItem
 from app.modules.search.service import search_documents
 from app.services.llm import AbstractLLMProvider, get_llm_provider
+from app.services.rag_chain import LangChainRagChain, SearchDocumentsRetriever
 
 
 def truncate_quote(text: str, max_length: int = 300) -> str:
@@ -210,26 +210,21 @@ async def process_send_message(
     session.add(user_msg)
     await session.flush()
 
-    # 2. Perform RBAC-scoped vector & text retrieval
-    allowed_scopes = get_allowed_scopes_for_user(user)
-    search_res = await search_documents(
-        session=session,
-        query=content,
-        allowed_scopes=allowed_scopes,
-        top_k=5,
+    # 2. Execute one LangChain retriever → guardrail → prompt → parser path.
+    # The retriever applies the user's allowed scopes before hybrid retrieval.
+    rag_chain = LangChainRagChain(
+        retriever=SearchDocumentsRetriever(
+            session=session,
+            user=user,
+            top_k=5,
+            search_function=search_documents,
+        ),
+        llm_provider=llm_provider,
     )
-
-    # 3. Evaluate grounding evidence and citations
-    has_evidence, citations = evaluate_grounding_and_citations(search_res.items)
-
-    # 4. Generate response via LLM
-    if not has_evidence:
-        answer = "Không tìm thấy thông tin phù hợp trong các tài liệu hiện có."
-        citations = []
-    else:
-        llm = llm_provider or get_llm_provider()
-        sys_prompt, user_prompt = build_rag_prompt(content, citations)
-        answer = await llm.generate(prompt=user_prompt, system_prompt=sys_prompt)
+    rag_result = await rag_chain.ainvoke(content)
+    has_evidence = rag_result.has_sufficient_evidence
+    citations = rag_result.citations
+    answer = rag_result.answer
 
     tokens_used = len(content.split()) + len(answer.split())
 
@@ -273,17 +268,17 @@ async def process_send_message_stream(
     session.add(user_msg)
     await session.flush()
 
-    # 2. RAG Retrieval
-    allowed_scopes = get_allowed_scopes_for_user(user)
-    search_res = await search_documents(
-        session=session,
-        query=content,
-        allowed_scopes=allowed_scopes,
-        top_k=5,
+    # 2. Execute the same LangChain chain used by synchronous chat.
+    rag_chain = LangChainRagChain(
+        retriever=SearchDocumentsRetriever(
+            session=session,
+            user=user,
+            top_k=5,
+            search_function=search_documents,
+        ),
+        llm_provider=llm_provider,
     )
-
-    # 3. Grounding evaluation
-    has_evidence, citations = evaluate_grounding_and_citations(search_res.items)
+    has_evidence, citations = await rag_chain.retrieve_grounded(content)
 
     # 4. Yield citation event first
     citation_payload = {
@@ -301,8 +296,11 @@ async def process_send_message_stream(
         yield f"event: token\ndata: {json.dumps(token_payload, ensure_ascii=False)}\n\n"
     else:
         llm = llm_provider or get_llm_provider()
-        sys_prompt, user_prompt = build_rag_prompt(content, citations)
-        async for token in llm.stream_generate(prompt=user_prompt, system_prompt=sys_prompt):
+        system_prompt, user_prompt = rag_chain.build_provider_prompts(content, citations)
+        async for token in llm.stream_generate(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+        ):
             full_answer_tokens.append(token)
             token_payload = {"token": token}
             yield f"event: token\ndata: {json.dumps(token_payload, ensure_ascii=False)}\n\n"
@@ -342,28 +340,21 @@ async def process_stateless_query(
     llm_provider: AbstractLLMProvider | None = None,
 ) -> ChatQueryResponse:
     """Process stateless chat query without persisting session history."""
-    allowed_scopes = get_allowed_scopes_for_user(user)
-    if scope and scope not in allowed_scopes:
-        raise forbidden(f"Tài khoản của bạn không có quyền truy cập phạm vi '{scope}'.")
-
-    search_res = await search_documents(
-        session=session,
-        query=question,
-        allowed_scopes=allowed_scopes,
-        requested_scope=scope,
-        doc_type=doc_type,
-        top_k=top_k,
+    rag_chain = LangChainRagChain(
+        retriever=SearchDocumentsRetriever(
+            session=session,
+            user=user,
+            requested_scope=scope,
+            doc_type=doc_type,
+            top_k=top_k,
+            search_function=search_documents,
+        ),
+        llm_provider=llm_provider,
     )
-
-    has_evidence, citations = evaluate_grounding_and_citations(search_res.items)
-
-    if not has_evidence:
-        answer = "Không tìm thấy thông tin phù hợp trong các tài liệu hiện có."
-        citations = []
-    else:
-        llm = llm_provider or get_llm_provider()
-        sys_prompt, user_prompt = build_rag_prompt(question, citations)
-        answer = await llm.generate(prompt=user_prompt, system_prompt=sys_prompt)
+    rag_result = await rag_chain.ainvoke(question)
+    has_evidence = rag_result.has_sufficient_evidence
+    citations = rag_result.citations
+    answer = rag_result.answer
 
     tokens_used = len(question.split()) + len(answer.split())
 

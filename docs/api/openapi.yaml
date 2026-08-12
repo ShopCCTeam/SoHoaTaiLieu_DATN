@@ -239,40 +239,51 @@ components:
 
     OCRBlock:
       type: object
-      required: [id, ocr_job_id, page_number, text, confidence, requires_review, review_status]
+      required: [id, version_id, page_number, block_index, text_content, confidence, bbox, requires_review, review_status, created_at, updated_at]
       properties:
         id: { type: string }
-        ocr_job_id: { type: string }
+        version_id: { type: string }
+        page_id: { type: [string, "null"] }
         page_number: { type: integer, minimum: 1 }
+        block_index: { type: integer, minimum: 0 }
+        text_content: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
         bbox:
           type: array
           items: { type: number }
           minItems: 4
           maxItems: 4
-          description: "[x_min, y_min, x_max, y_max] trong PDF coordinate"
-        text: { type: string }
-        confidence:
-          type: number
-          minimum: 0
-          maximum: 1
-        requires_review:
-          type: boolean
-          description: |
-            True khi confidence < threshold (mặc định 0.9).
-            Cờ này quyết định version `requires_review=true`.
-        review_status:
-          $ref: '#/components/schemas/OCRReviewStatus'
+          description: "[x_min, y_min, x_max, y_max] theo pixel ảnh render 300 DPI"
+        requires_review: { type: boolean }
+        review_status: { $ref: '#/components/schemas/OCRReviewStatus' }
+        edited_text: { type: [string, "null"] }
+        original_text: { type: [string, "null"] }
+        job_id: { type: [string, "null"] }
         reviewed_by: { type: [string, "null"] }
         reviewed_at: { type: [string, "null"], format: date-time }
-        is_edited:
-          type: boolean
-          description: |
-            True khi `text` đã khác `original_text` (sửa lỗi).
-            Nên giữ cho compatibility, nhưng review mới dùng `review_status`.
-        edited_by: { type: [string, "null"] }
-        edited_at: { type: [string, "null"], format: date-time }
-        original_text: { type: [string, "null"] }
         processing_time_ms: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    OCRPage:
+      type: object
+      required: [id, version_id, page_number, status, block_count, has_warnings, created_at]
+      properties:
+        id: { type: string }
+        version_id: { type: string }
+        page_number: { type: integer, minimum: 1 }
+        width: { type: [integer, "null"] }
+        height: { type: [integer, "null"] }
+        image_key:
+          type: [string, "null"]
+          description: Object key nội bộ; chỉ dùng để quyết định có ảnh, không hiển thị cho client.
+        status: { type: string }
+        block_count: { type: integer, minimum: 0 }
+        has_warnings: { type: boolean }
+        created_at: { type: string, format: date-time }
 
     SearchResultItem:
       type: object
@@ -577,7 +588,8 @@ paths:
       summary: Upload tài liệu mới (trả về job, OCR chạy async)
       description: |
         - Header `Idempotency-Key: <uuid>` BẮT BUỘC.
-        - PDF ≤ 50MB, MIME = application/pdf, magic bytes %PDF-.
+        - PDF â‰¤ 50MB; JPEG/PNG â‰¤ 10MB; MIME vÃ  magic bytes pháº£i khá»›p `application/pdf`, `image/jpeg` hoáº·c `image/png`.
+
         - Trả 202 Accepted + job_id (FE poll `/jobs/{id}`).
       parameters:
         - in: header
@@ -595,7 +607,8 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: "PDF ≤ 50MB"
+                  description: "PDF â‰¤ 50MB; JPEG/PNG â‰¤ 10MB; MIME vÃ  magic bytes pháº£i khá»›p."
+
                 title: { type: string }
                 type:
                   type: string
@@ -657,21 +670,62 @@ paths:
                     properties:
                       data:
                         type: object
-                        required: [version_id, ocr_status, requires_review, total_blocks, pending_reviews, blocks]
+                        required: [version_id, ocr_status, requires_review, total_blocks, pending_reviews, pages, blocks]
                         properties:
                           version_id: { type: string }
                           ocr_status: { type: string }
                           requires_review: { type: boolean }
                           total_blocks: { type: integer }
                           pending_reviews: { type: integer }
+                          pages:
+                            type: array
+                            items: { $ref: '#/components/schemas/OCRPage' }
                           blocks:
                             type: array
                             items: { $ref: '#/components/schemas/OCRBlock' }
+
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /documents/{id}/versions/{vid}/ocr/pages/{page}/image:
+    get:
+      tags: [ocr]
+      summary: Lấy ảnh PNG render 300 DPI của một trang OCR
+      description: |
+        Backend kiểm tra quyền đọc tài liệu và document scope trước khi lấy object
+        `image_key` từ storage. Response là bytes PNG qua API; không trả public URL,
+        presigned URL hoặc storage credential.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: vid
+          required: true
+          schema: { type: string }
+        - in: path
+          name: page
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: PNG trang OCR
+          headers:
+            Cache-Control:
+              description: Không cho shared cache lưu ảnh tài liệu có kiểm soát scope.
+              schema: { type: string, example: "private, no-store" }
+          content:
+            image/png:
+              schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /documents/{id}/versions/{vid}/ocr/blocks/{bid}:
+
     patch:
       tags: [ocr]
       summary: Duyệt hoặc chỉnh sửa một block OCR

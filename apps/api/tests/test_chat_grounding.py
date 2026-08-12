@@ -53,3 +53,15 @@ def test_should_reject_result_without_vector_score() -> None:
 
     assert grounded is False
     assert citations == []
+
+
+def test_should_accept_cosine_score_above_threshold() -> None:
+    """Cosine 0.61 is sufficient evidence while the configured threshold remains 0.6."""
+    grounded, citations = evaluate_grounding_and_citations(
+        [_search_item(score=0.0042, vector_score=0.61)],
+        vector_score_threshold=0.6,
+    )
+
+    assert grounded is True
+    assert len(citations) == 1
+    assert citations[0].score == 0.0042

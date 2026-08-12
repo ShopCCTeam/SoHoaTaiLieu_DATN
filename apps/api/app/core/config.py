@@ -78,10 +78,16 @@ class Settings(BaseSettings):
     ocr_default_engine: Literal["paddleocr", "tesseract"] = "paddleocr"
     ocr_render_dpi: int = Field(default=300, ge=72, le=600)
     ocr_text_layer_min_characters: int = Field(default=50, ge=1, le=10_000)
+    ocr_preprocess_enabled: bool = False
+    ocr_preprocess_deskew: bool = True
+    ocr_preprocess_denoise_kernel_size: int = Field(default=3, ge=1, le=31)
+    ocr_preprocess_binarize: bool = True
+    ocr_preprocess_adaptive_threshold_block_size: int = Field(default=31, ge=3, le=255)
+    ocr_preprocess_adaptive_threshold_c: int = Field(default=11, ge=-255, le=255)
 
     # ---- Embedding & RAG ----
     embedding_provider: Literal["bge-m3", "mock"] = "mock"
-    embedding_api_url: str = "http://localhost:11434/api/embeddings"
+    embedding_api_url: str = "http://localhost:11434/api/embed"
     embedding_model_name: str = "bge-m3"
 
     # ---- RAG grounding ----
@@ -90,7 +96,7 @@ class Settings(BaseSettings):
     # ---- LLM Chatbot ----
     llm_provider: Literal["ollama", "mock"] = "mock"
     llm_ollama_base_url: str = "http://localhost:11434"
-    llm_ollama_model_name: str = "qwen2.5:8b"
+    llm_ollama_model_name: str = "qwen2.5:7b"
     llm_temperature: float = 0.7
     llm_max_tokens: int = 1000
     llm_timeout_seconds: int = 30

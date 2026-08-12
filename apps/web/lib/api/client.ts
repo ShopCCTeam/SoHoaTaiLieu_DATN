@@ -3,6 +3,10 @@ import { ApiError, type ProblemDetail } from "./types";
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 const IS_MOCK = process.env.NEXT_PUBLIC_API_MODE !== "live";
 
+export function isApiMockMode(): boolean {
+  return IS_MOCK;
+}
+
 interface RequestOptions extends RequestInit {
   token?: string;
 }
@@ -24,6 +28,51 @@ function isProblemDetail(value: unknown): value is ProblemDetail {
     "status" in value &&
     "code" in value
   );
+}
+
+export async function apiBinaryClient(
+  endpoint: string,
+  options: RequestOptions = {},
+): Promise<Blob> {
+  const { token, headers, ...customConfig } = options;
+  const baseUrlClean = BASE_URL.replace(/\/+$/, "");
+  const endpointClean = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const url = IS_MOCK ? `/api${endpointClean}` : `${baseUrlClean}${endpointClean}`;
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Accept", "image/png");
+  if (token) {
+    requestHeaders.set("Authorization", `Bearer ${token}`);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: options.method || "GET",
+      headers: requestHeaders,
+      credentials: "include",
+      ...customConfig,
+    });
+  } catch (err) {
+    throw new ApiError({
+      type: "http://localhost:3000/problems/network",
+      title: "Lỗi mạng",
+      status: 0,
+      detail: (err as Error).message,
+      code: "INTERNAL",
+      requestId: "n/a",
+    });
+  }
+
+  if (!response.ok || !response.headers.get("content-type")?.startsWith("image/png")) {
+    throw new ApiError({
+      type: "http://localhost:3000/problems/image",
+      title: "Không thể tải ảnh trang OCR",
+      status: response.status,
+      code: response.status === 403 ? "FORBIDDEN" : "INTERNAL",
+      requestId: "n/a",
+    });
+  }
+  return response.blob();
 }
 
 export async function apiClient<T>(

@@ -98,3 +98,107 @@ async def test_idempotency_replay(api_client: AsyncClient, staff_user: User) -> 
     assert resp2.status_code == 202
     assert resp2.json()["data"]["document_id"] == doc_id_1
     assert resp2.json()["data"]["job_id"] == job_id_1
+
+
+VALID_JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9"
+VALID_PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\x0dIDAT\x08\xd7c\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff\x89\x99=\x1d"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+@pytest.mark.asyncio
+async def test_upload_valid_jpeg_returns_202(api_client: AsyncClient, staff_user: User) -> None:
+    headers = auth_headers_for(staff_user)
+    headers["Idempotency-Key"] = "e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b"
+    files = {"file": ("thong_bao.jpg", VALID_JPEG_BYTES, "image/jpeg")}
+    data = {"title": "Thông báo dạng ảnh", "type": "THONG_BAO", "scope": "PUBLIC"}
+
+    response = await api_client.post("/api/v1/documents", files=files, data=data, headers=headers)
+
+    assert response.status_code == 202
+    assert response.json()["data"]["status"] in {"QUEUED", "SUCCEEDED"}
+
+    document_id = response.json()["data"]["document_id"]
+    versions_response = await api_client.get(
+        f"/api/v1/documents/{document_id}/versions", headers=headers
+    )
+    assert versions_response.status_code == 200
+    version_id = versions_response.json()["data"][0]["id"]
+
+    ocr_response = await api_client.get(
+        f"/api/v1/documents/{document_id}/versions/{version_id}/ocr", headers=headers
+    )
+    assert ocr_response.status_code == 200
+    ocr_data = ocr_response.json()["data"]
+    assert len(ocr_data["blocks"]) > 0
+    assert ocr_data["pages"][0]["image_key"] == f"documents/pages/{version_id}/1.png"
+
+
+@pytest.mark.asyncio
+async def test_upload_valid_png_returns_202(api_client: AsyncClient, staff_user: User) -> None:
+    headers = auth_headers_for(staff_user)
+    headers["Idempotency-Key"] = "f6a7b8c9-d0e1-2f3a-4b5c-6d7e8f9a0b1c"
+    files = {"file": ("quy_dinh.png", VALID_PNG_BYTES, "image/png")}
+    data = {"title": "Quy định dạng ảnh", "type": "QUY_DINH", "scope": "PUBLIC"}
+
+    response = await api_client.post("/api/v1/documents", files=files, data=data, headers=headers)
+
+    assert response.status_code == 202
+    assert response.json()["data"]["status"] in {"QUEUED", "SUCCEEDED"}
+
+    document_id = response.json()["data"]["document_id"]
+    versions_response = await api_client.get(
+        f"/api/v1/documents/{document_id}/versions", headers=headers
+    )
+    assert versions_response.status_code == 200
+    version_id = versions_response.json()["data"][0]["id"]
+
+    ocr_response = await api_client.get(
+        f"/api/v1/documents/{document_id}/versions/{version_id}/ocr", headers=headers
+    )
+    assert ocr_response.status_code == 200
+    ocr_data = ocr_response.json()["data"]
+    assert len(ocr_data["blocks"]) > 0
+    assert ocr_data["pages"][0]["image_key"] == f"documents/pages/{version_id}/1.png"
+
+    image_response = await api_client.get(
+        f"/api/v1/documents/{document_id}/versions/{version_id}/ocr/pages/1/image",
+        headers=headers,
+    )
+    assert image_response.status_code == 200
+    assert image_response.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.asyncio
+async def test_upload_png_larger_than_10mb_rejected(
+    api_client: AsyncClient, staff_user: User
+) -> None:
+    headers = auth_headers_for(staff_user)
+    headers["Idempotency-Key"] = "9a0b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d"
+    oversized_png = b"\x89PNG\r\n\x1a\n" + b"X" * (10 * 1024 * 1024)
+    files = {"file": ("vuot_gioi_han.png", oversized_png, "image/png")}
+    data = {"title": "Ảnh quá cỡ", "type": "THONG_BAO", "scope": "PUBLIC"}
+
+    response = await api_client.post("/api/v1/documents", files=files, data=data, headers=headers)
+
+    assert response.status_code == 413
+    assert response.json()["code"] == "FILE_SIZE_EXCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_upload_fake_jpeg_renamed_from_exe_rejected(
+    api_client: AsyncClient, staff_user: User
+) -> None:
+    headers = auth_headers_for(staff_user)
+    headers["Idempotency-Key"] = "a7b8c9d0-e1f2-3a4b-5c6d-7e8f9a0b1c2d"
+    fake_executable = b"MZ\x90\x00this-is-not-an-image"
+    files = {"file": ("gia_mao.jpg", fake_executable, "image/jpeg")}
+    data = {"title": "Tệp giả đổi đuôi", "type": "THONG_BAO", "scope": "PUBLIC"}
+
+    response = await api_client.post("/api/v1/documents", files=files, data=data, headers=headers)
+
+    assert response.status_code == 415
+    assert response.json()["code"] == "INVALID_FILE_TYPE"

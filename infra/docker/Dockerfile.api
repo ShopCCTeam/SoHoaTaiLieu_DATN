@@ -12,9 +12,13 @@ WORKDIR /app
 # Copy package metadata trước để cache layer. `README.md` được khai báo trong pyproject.
 COPY pyproject.toml uv.lock* README.md ./
 
-# Install Tesseract fallback runtime (Vietnamese language data included).
+# Install Tesseract fallback and OpenCV runtime libraries required by PaddleOCR.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-vie \
+    && apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-vie \
+        libgl1 \
+        libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install runtime dependencies, including the optional real OCR engines.

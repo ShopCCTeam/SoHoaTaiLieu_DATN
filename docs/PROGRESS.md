@@ -371,3 +371,127 @@
 - Các test trực tiếp bị ảnh hưởng đều pass, gồm 11 test OCR/RAG targeted, 6 chat router tests, SSE citation event, RBAC citation scope, citation title và MinIO unavailable path. Full backend suite với Postgres Docker chạy qua 100% progress sau khi xử lý các failure nhưng runner không kết thúc ở teardown; không ghi nhận full-suite PASS cho tới khi hiện tượng connection teardown được xử lý.
 
 > Lưu ý: full-suite runner có cảnh báo SQLAlchemy về connection chưa được trả về pool trong teardown. Đây là hạn chế kiểm chứng hiện tại, không được xem là bằng chứng full-suite clean.
+
+
+---
+
+## 2026-08-12 — Hoàn thiện OCR page preview và tính nhất quán indexing
+
+**Việc đã làm**:
+
+- Mỗi `OcrPageResult` mang bytes PNG render 300 DPI trong bộ nhớ đến worker; worker lưu object key `documents/pages/{version_id}/{page}.png` qua `StorageService`/MinIO rồi mới persist `OCRPage.image_key`. Key được lưu là object key nội bộ, không phải public URL, để review vẫn đi qua scope/RBAC backend.
+- Cả trang có text layer và trang scan đều render 300 DPI trước khi tạo kết quả trang. Text layer tiếp tục bypass nhận dạng OCR khi đạt 50 ký tự, nhưng vẫn có preview PNG 300 DPI cho OCR review UI.
+- Worker commit OCR pages/blocks trước indexing nhưng giữ `Job.status=PROCESSING`; chỉ sau `_async_index_document_chunks` trả `SUCCEEDED` mới đặt `Job.status=SUCCEEDED` và `progress=100`. Nếu indexing lỗi, outer handler vẫn đánh dấu job failed.
+- Bổ sung test integration xác minh `image_key`, PNG bytes đã lưu, và job còn `PROCESSING` trong lúc indexing. Bổ sung test grounding: `vector_score=0.61` pass, `0.59` reject, ngưỡng vẫn là `0.6`.
+
+**Bằng chứng đã chạy**:
+
+| Gate | Kết quả |
+|---|---|
+| `uv lock --check` | ✅ Exit 0 |
+| `uv run mypy app` | ✅ 62 source files, không có lỗi |
+| Test OCR + grounding trực tiếp | ✅ 12 passed |
+| Full coverage gate | ✅ 248 passed, 4 skipped, coverage **83.00%** (gate 80%) |
+| `.agents` còn tracked | ✅ `git ls-files .agents` trả 0 |
+
+> Full suite hoàn thành logic/coverage nhưng phát 8 `SAWarning` về connection cleanup ở teardown. Đây là warning cần theo dõi; coverage command vẫn kết thúc với kết quả pass được ghi trong output.
+
+
+---
+
+## 2026-08-12 — T01: Ollama nội bộ và BGE-M3 thật (đang triển khai)
+
+**Đã thực hiện trong source/config**:
+
+- Chốt Ollama chạy nội bộ trong Docker Compose. Compose thêm service `ctsv-ollama` dùng image ghim `ollama/ollama:0.32.9`, volume `ollama_data`, healthcheck server và không tự động pull model khi khởi động.
+- API và worker phụ thuộc Ollama healthy, dùng DNS nội bộ `http://ollama:11434`; profile Compose đặt `EMBEDDING_PROVIDER=bge-m3`, `EMBEDDING_API_URL=http://ollama:11434/api/embed`, `LLM_PROVIDER=ollama`.
+- Adapter BGE-M3 chuyển từ endpoint legacy từng prompt sang endpoint batch Ollama `/api/embed`, gửi một danh sách input và fail-closed nếu số vector hoặc dimension không đúng 1024.
+- Cập nhật `.env.example` bằng các biến RAG/Ollama mẫu; không đọc hoặc sửa `.env` thật.
+
+**Bằng chứng đã chạy**:
+
+| Gate | Kết quả |
+|---|---|
+| Test adapter `/api/embed` (RED trước code) | ✅ Thất bại đúng như kỳ vọng do adapter cũ gửi endpoint/payload legacy |
+| `uv run pytest tests/test_config.py tests/test_embedding.py -q` | ✅ 19 passed |
+
+**Chưa xác minh**:
+
+- Chưa chạy Docker Compose, chưa pull `bge-m3` hoặc `qwen2.5:8b`, chưa chạy migration và chưa index vector thật. Các bước này cần được thực hiện có chủ đích vì image/model tốn dung lượng và thời gian.
+
+
+**Bằng chứng runtime bổ sung**:
+
+- Docker Desktop được khởi động theo xác nhận của người dùng. Compose syntax pass khi vô hiệu hoá đọc `.env`; service `ctsv-ollama` healthy.
+- Đã pull `bge-m3:latest` (1.2 GB) và `qwen2.5:7b` (4.7 GB) vào volume `ollama_data`. Tag cũ `qwen2.5:8b` không có manifest; dùng `qwen2.5:7b` vì là tag hợp lệ cùng họ, đa ngôn ngữ và để lại headroom tốt hơn cho máy 32 GB RAM/8 GB VRAM.
+- API container gọi thật `BGEM3EmbeddingStrategy` qua `http://ollama:11434/api/embed` và nhận đúng một embedding 1024 chiều. Provider chat Ollama trả response không rỗng từ `qwen2.5:7b`.
+- Không dùng PDF/OCR thật, không chạy migration và không lưu script kiểm chứng tạm trong repository.
+
+
+---
+
+## 2026-08-12 — T02/T03: OCR native và tiền xử lý ảnh có cấu hình
+
+PaddleOCR primary đã được kiểm chứng trong `ctsv-worker` bằng PDF scan **tổng hợp** tiếng Việt, không dùng tài liệu thật. Worker trả một trang, ba block OCR và PNG render 300 DPI. Lỗi runtime ban đầu được truy vết chính xác: Paddle cần `setuptools`, OpenCV cần `libGL.so.1`; extra `ocr` nay khai báo trực tiếp `numpy` và `setuptools`, còn Docker image cài `libgl1` và `libglib2.0-0` cùng Tesseract tiếng Việt. Worker được rebuild riêng sau khi WSL đã giới hạn 6 GB, không rebuild đồng thời API.
+
+Stage tiền xử lý opt-in đã thêm trước hai OCR engine: deskew theo foreground angle, median denoise và adaptive binarisation. Các tham số nằm trong nhóm `OCR_PREPROCESS_*`; mặc định `OCR_PREPROCESS_ENABLED=false` để giữ baseline render 300 DPI và output hiện hành. Nhánh được bật đã chạy qua PaddleOCR trên cùng PDF tổng hợp, trả một trang và ba block; unit/config tests đạt 23 passed, Ruff sạch và mypy sạch trên 63 source files.
+
+> Chưa có corpus được phép, vì vậy chưa đo CER/WER hoặc latency trước/sau. Bật preprocessing cho benchmark chỉ được thực hiện sau khi nhận corpus, chia test set và đóng baseline theo T15–T17.
+
+---
+
+## 2026-08-12 — T04: Ảnh thật có RBAC cho màn duyệt OCR
+
+- Contract bổ sung endpoint `GET /documents/{id}/versions/{vid}/ocr/pages/{page}/image`. Router kiểm tra document scope **trước** khi truy vấn `OCRPage` và storage; chỉ sau đó trả bytes `image/png` với `Cache-Control: private, no-store`. Không tạo public URL MinIO.
+- Frontend live mode dùng binary API client với bearer token, lấy PNG qua endpoint có RBAC; bbox pixel backend được chuẩn hoá theo `OCRPage.width`/`height` trước overlay. Mock mode vẫn giữ fixture riêng.
+- Kiểm chứng đã có: test API staff đọc ảnh trang trả 200 PNG; student không có scope `INTERNAL` bị 403. `pnpm openapi:lint`, frontend typecheck và 31 frontend test đã pass trong phiên trước.
+
+---
+
+## 2026-08-12 — T05: Upload JPG/PNG an toàn và OCR ảnh một trang
+
+**Đã thực hiện**:
+
+- Cập nhật `docs/api/openapi.yaml` trước; `POST /documents` chấp nhận PDF tối đa 50MB, JPEG/PNG tối đa 10MB và yêu cầu MIME khớp magic bytes. Contract TypeScript được tái sinh từ nguồn chuẩn.
+- Validator tại backend chỉ nhận `%PDF-`, `FF D8 FF` (JPEG) hoặc `89 50 4E 47 0D 0A 1A 0A` (PNG); MIME không khớp, bytes giả đổi đuôi và vượt giới hạn bị trả RFC 7807 `415`/`413`. Filename không được dùng làm storage key nên không tạo đường path traversal.
+- Raw upload lưu extension và content type do validator phát hiện. Worker suy ra format từ object key do service kiểm soát; PDF tiếp tục render PyMuPDF 300 DPI, còn JPEG/PNG đi qua `process_image()` trực tiếp một trang, được chuẩn hoá thành PNG review tại `documents/pages/{version_id}/1.png`. Job vẫn chỉ `SUCCEEDED` sau indexing.
+- Thêm test cho JPEG/PNG hợp lệ, JPEG giả đổi đuôi, giới hạn ảnh 10MB, regression PDF, dispatch OCR ảnh và luồng API test: upload PNG → version → OCR block → `image_key` → endpoint PNG private.
+
+**Bằng chứng đã chạy**:
+
+| Gate | Kết quả |
+|---|---|
+| OpenAPI | ✅ `pnpm openapi:lint` PASS; `pnpm openapi:generate` hoàn tất |
+| T05 targeted tests | ✅ `uv run pytest tests/test_documents_upload.py tests/test_pdf_validator.py tests/test_ocr_image.py -q` — **15 passed, 1 skipped** |
+| JPEG/PNG lifecycle API test | ✅ cả JPEG và PNG tạo OCR block và page key chuẩn; PNG được đọc lại qua API private trong test harness |
+| Static backend | ✅ Ruff PASS; mypy PASS (**64 source files**) |
+| Regression không phụ thuộc PG/Alembic/BGE live | ✅ **234 passed, 1 skipped, 27 deselected** |
+
+**Bằng chứng native bổ sung**:
+
+- Sau khi được xác nhận, đã rebuild và recreate **riêng** `ctsv-worker`; service trở lại `healthy`. Smoke test bằng ảnh JPEG **và PNG** tổng hợp không nhạy cảm, chạy qua đúng virtual environment worker, mỗi định dạng trả **1 page, 2 blocks, kích thước 1600×900 và PNG review hợp lệ**. Không in nội dung OCR, không upload hay đọc tài liệu thật.
+- Lần thử đầu gọi Python hệ thống nên không thấy Pillow; đó không phải runtime worker. `uv run python` trong `/app/.venv` xác nhận extra OCR đã có và PaddleOCR primary xử lý ảnh trực tiếp thành công.
+- Full coverage gate hiện kết thúc fail vì lỗi xác thực PostgreSQL của môi trường test và payload embedding BGE-M3 live không hợp lệ; coverage vẫn đạt **80.09%**. Đây không được ghi là full-suite clean.
+
+---
+
+## 2026-08-12 — T06: LangChain chain grounded thật cho chat
+
+**Đã thực hiện**:
+
+- Khai báo `langchain`, `langchain-community` và `langchain-ollama`; `uv.lock` khoá 153 package và `uv lock --check` đạt.
+- Thêm `SearchDocumentsRetriever`: lấy scope được phép của user, chặn requested scope ngoài quyền **trước** `search_documents()`, sau đó dùng nguyên retrieval hybrid/RRF hiện có. Không thay vector store hoặc topology pgvector.
+- Thêm `LangChainRagChain`: retriever → guardrail cosine `rag_vector_score_threshold=0.6` → `ChatPromptTemplate` → Ollama `ChatOllama` nội bộ ở live mode → `StrOutputParser`. Citation được tạo duy nhất từ evidence đã qua guardrail; score 0.59/no-result trả no-answer và không gọi LLM.
+- Luồng chat sync và stateless gọi full chain. SSE dùng cùng retriever, guardrail và prompt template LangChain, sau đó giữ `AbstractLLMProvider.stream_generate()` để bảo toàn event token/citation/done và test client hiện hữu.
+- Thêm `SafeRagTraceCallback` trong memory: trace chỉ có stage, số evidence và cờ grounding; không lưu question, quote, answer, nội dung tài liệu hoặc PII. Test ghim các invariant đó.
+
+**Bằng chứng đã chạy**:
+
+| Gate | Kết quả |
+|---|---|
+| Lock/source | ✅ `uv lock --check`; Ruff PASS; mypy PASS (**65 source files**) |
+| LangChain unit + chat/SSE regression | ✅ **22 passed**: chain, citation, no-answer, 0.61/0.59, RBAC scope, SSE event/persistence |
+| Live internal chain | ✅ rebuild/recreate **riêng `ctsv-api`**, healthcheck healthy; smoke synthetic qua `http://ollama:11434` trả `has_sufficient_evidence=true`, 1 citation và answer không rỗng |
+| Trace privacy | ✅ test xác nhận trace không chứa question, quote hoặc answer |
+
+**Lưu ý kiểm chứng**: Regression chat phát ra 6 `SAWarning` về cleanup connection SQLite test harness; test vẫn pass và đây không phải lỗi chain. Full pytest/coverage mới nhất đạt **80.86%** nhưng kết thúc `3 failed, 258 passed, 1 skipped, 3 errors`: các test PostgreSQL/Alembic bị chặn bởi xác thực PostgreSQL test và các test BGE-M3 live bị chặn bởi payload embedding không hợp lệ. Hai nhóm này có trước T06, không được ghi là full-suite clean. Docker runtime sau rebuild riêng có `ctsv-api`, `ctsv-worker`, `ctsv-ollama`, Redis, PostgreSQL và MinIO đều `healthy`.

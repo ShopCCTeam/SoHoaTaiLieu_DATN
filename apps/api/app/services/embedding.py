@@ -78,26 +78,29 @@ class BGEM3EmbeddingStrategy(EmbeddingStrategy):
             return []
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                embeddings: list[list[float]] = []
-                for text in texts:
-                    resp = await client.post(
-                        self.api_url,
-                        json={"model": self.model_name, "prompt": text},
+                response = await client.post(
+                    self.api_url,
+                    json={"model": self.model_name, "input": texts},
+                )
+                if response.status_code != 200:
+                    raise RuntimeError(
+                        f"BGE-M3 embedding API returned status {response.status_code}."
                     )
-                    if resp.status_code != 200:
-                        raise RuntimeError(
-                            f"BGE-M3 embedding API returned status {resp.status_code}."
-                        )
-                    data = resp.json()
-                    emb = data.get("embedding") or (
-                        data.get("data", [{}])[0].get("embedding") if data.get("data") else None
+
+                data = response.json()
+                embeddings = data.get("embeddings")
+                if not (
+                    isinstance(embeddings, list)
+                    and len(embeddings) == len(texts)
+                    and all(
+                        isinstance(embedding, list) and len(embedding) == 1024
+                        for embedding in embeddings
                     )
-                    if not (emb and isinstance(emb, list) and len(emb) == 1024):
-                        raise RuntimeError(
-                            "BGE-M3 embedding API returned an invalid embedding "
-                            "(expected a 1024-dim vector)."
-                        )
-                    embeddings.append(emb)
+                ):
+                    raise RuntimeError(
+                        "BGE-M3 embedding API returned invalid embeddings "
+                        "(expected one 1024-dim vector per input)."
+                    )
                 return embeddings
         except Exception as exc:
             raise RuntimeError(

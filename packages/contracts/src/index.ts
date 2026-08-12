@@ -23,6 +23,7 @@ export type JobStatus = Schemas["JobStatus"];
 export type Job = Schemas["Job"];
 export type UploadResponse = Schemas["UploadResponse"];
 export type OCRBlock = Schemas["OCRBlock"];
+export type OCRPage = Schemas["OCRPage"];
 export type OCRReviewStatus = Schemas["OCRReviewStatus"];
 export type Citation = Schemas["Citation"];
 export type ChatResponse = Schemas["ChatResponse"];

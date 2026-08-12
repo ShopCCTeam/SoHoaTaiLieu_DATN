@@ -48,7 +48,8 @@ from app.modules.documents.schemas import (
     UploadResponseEnvelope,
     VersionUpdateSchema,
 )
-from app.services.pdf_validator import validate_upload_file
+from app.services.file_validator import validate_upload_file
+from app.services.storage import get_storage_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -97,10 +98,10 @@ async def upload_document(
     current_user: User = Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> UploadResponseEnvelope:
-    """Upload a new PDF document (returns 202 Accepted + job_id)."""
+    """Upload a PDF, JPEG or PNG document (returns 202 Accepted + job_id)."""
     request_id = getattr(request.state, "request_id", "")
 
-    file_bytes, checksum, total_bytes = await validate_upload_file(
+    file_bytes, checksum, total_bytes, detected_format = await validate_upload_file(
         upload_file=file, request_id=request_id
     )
 
@@ -112,6 +113,7 @@ async def upload_document(
         file_bytes=file_bytes,
         checksum=checksum,
         total_bytes=total_bytes,
+        source_format=detected_format,
         idempotency_key=idempotency_key,
         title=title,
         doc_type=type,
@@ -228,7 +230,7 @@ async def create_document_version(
 
     check_document_access(doc, current_user, request_id=request_id)
 
-    file_bytes, checksum, total_bytes = await validate_upload_file(
+    file_bytes, checksum, total_bytes, detected_format = await validate_upload_file(
         upload_file=file, request_id=request_id
     )
 
@@ -239,6 +241,7 @@ async def create_document_version(
         file_bytes=file_bytes,
         checksum=checksum,
         total_bytes=total_bytes,
+        source_format=detected_format,
         idempotency_key=idempotency_key,
         change_summary=change_summary,
         request_id=request_id,
@@ -386,6 +389,48 @@ async def get_version_ocr_detail(
         review_status=review_status,
     )
     return OCRVersionDetailEnvelope(data=detail_data)
+
+
+@router.get("/{id}/versions/{vid}/ocr/pages/{page}/image", response_class=Response)
+async def get_ocr_page_image(
+    id: str,
+    vid: str,
+    page: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Proxy one page PNG after checking document scope at the backend boundary."""
+    request_id = getattr(request.state, "request_id", "")
+    doc = await service.get_document_by_id(session, id)
+    if not doc:
+        raise not_found(detail=f"Tài liệu với ID '{id}' không tồn tại.", request_id=request_id)
+
+    check_document_access(doc, current_user, request_id=request_id)
+    version = await service.get_document_version_by_id(session, id, vid)
+    if not version:
+        raise not_found(detail=f"Phiên bản với ID '{vid}' không tồn tại.", request_id=request_id)
+
+    ocr_page = await service.get_ocr_page_by_number(session, version, page)
+    if not ocr_page or not ocr_page.image_key:
+        raise not_found(
+            detail=f"Ảnh OCR trang {page} của phiên bản '{vid}' không tồn tại.",
+            request_id=request_id,
+        )
+
+    try:
+        image_bytes = await get_storage_service().download_file(ocr_page.image_key)
+    except FileNotFoundError as exc:
+        raise not_found(
+            detail=f"Ảnh OCR trang {page} của phiên bản '{vid}' không tồn tại.",
+            request_id=request_id,
+        ) from exc
+
+    return Response(
+        content=image_bytes,
+        media_type="image/png",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.patch("/{id}/versions/{vid}/ocr/blocks/{bid}", response_model=OCRBlockSingleEnvelope)

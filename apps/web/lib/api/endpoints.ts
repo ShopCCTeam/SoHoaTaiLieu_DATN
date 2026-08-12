@@ -20,6 +20,8 @@ export const API_ENDPOINTS = {
       `/documents/${documentId}/versions/${versionId}/index`,
     OCR_DETAIL: (documentId: string, versionId: string) =>
       `/documents/${documentId}/versions/${versionId}/ocr`,
+    OCR_PAGE_IMAGE: (documentId: string, versionId: string, page: number) =>
+      `/documents/${documentId}/versions/${versionId}/ocr/pages/${page}/image`,
     UPDATE_BLOCK: (documentId: string, versionId: string, blockId: string) =>
       `/documents/${documentId}/versions/${versionId}/ocr/blocks/${blockId}`,
     BATCH_REVIEW: (documentId: string, versionId: string) =>
