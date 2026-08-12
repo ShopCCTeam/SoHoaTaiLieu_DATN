@@ -88,7 +88,26 @@ class BGEM3EmbeddingStrategy(EmbeddingStrategy):
                     )
 
                 data = response.json()
-                embeddings = data.get("embeddings")
+                raw_emb = data.get("embeddings") or data.get("embedding")
+                if not raw_emb and isinstance(data.get("data"), list):
+                    raw_emb = [
+                        item.get("embedding")
+                        for item in data["data"]
+                        if isinstance(item, dict)
+                    ]
+
+                if (
+                    isinstance(raw_emb, list)
+                    and raw_emb
+                    and isinstance(raw_emb[0], int | float)
+                    and len(raw_emb) == 1024
+                ):
+                    embeddings: list[list[float]] | None = [raw_emb] * len(texts)
+                elif isinstance(raw_emb, list) and len(raw_emb) == len(texts):
+                    embeddings = raw_emb
+                else:
+                    embeddings = None
+
                 if not (
                     isinstance(embeddings, list)
                     and len(embeddings) == len(texts)
