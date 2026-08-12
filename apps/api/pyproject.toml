@@ -18,14 +18,18 @@ dependencies = [
     "pyjwt>=2.9.0,<3",
     # Database (deferred — actual usage in Phase 1)
     "sqlalchemy>=2.0.36,<3",
+    "greenlet>=3.0.0,<4",
     "asyncpg>=0.30.0,<0.31",
     "alembic>=1.13.3,<2",
     "pgvector>=0.3.0,<0.4",
     # Task queue (deferred)
     "celery>=5.4.0,<6",
     "redis>=5.2.0,<6",
-    # Object storage (deferred)
+    # Object storage
     "boto3>=1.35.0,<2",
+    "minio>=7.2.0,<8",            # MinIO S3 storage client (used by MinioStorageService)
+    # OCR — PDF→image rendering (pure-Python wheel, no system binary needed)
+    "pymupdf>=1.24.0,<2",
     # HTTP
     "httpx>=0.28.0,<0.29",
     # Utilities
@@ -36,6 +40,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Real OCR engines. Heavy (paddleocr pulls paddlepaddle); NOT installed in CI
+# or by default. Install locally with `uv sync --extra ocr` to enable real OCR.
+# Runtime imports in app/services/ocr_engine.py degrade gracefully when absent.
+ocr = [
+    "paddlepaddle>=2.6.0,<3",
+    "paddleocr>=2.8.0,<3",
+    "pytesseract>=0.3.10,<0.4",
+    "pillow>=10.4.0,<12",
+]
 dev = [
     "ruff>=0.7.0,<0.8",
     "mypy>=1.13.0,<2",
@@ -97,6 +110,13 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 no_implicit_optional = true
+
+# Optional / untyped third-party libs (PDF->image render, OCR engines).
+# fitz (PyMuPDF) and Pillow ship no py.typed marker; OCR engines are an
+# optional extra not installed in the CI/type-check env.
+[[tool.mypy.overrides]]
+module = ["fitz", "PIL", "PIL.*"]
+ignore_missing_imports = true
 
 # -------- pytest --------
 [tool.pytest.ini_options]

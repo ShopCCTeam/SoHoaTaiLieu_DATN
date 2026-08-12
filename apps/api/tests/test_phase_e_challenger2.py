@@ -25,6 +25,7 @@ from app.modules.chat.service import (
     truncate_quote,
 )
 from app.modules.search.schemas import SearchResponse, SearchResultItem
+from app.services.embedding import EmbeddingService
 from tests.conftest import auth_headers_for
 
 # ---------------------------------------------------------------------------
@@ -33,8 +34,17 @@ from tests.conftest import auth_headers_for
 
 
 @pytest.fixture
-async def rbac_test_documents(db_session_factory) -> tuple[Document, Document]:
-    """Seed 1 PUBLIC document and 1 INTERNAL document for RBAC testing."""
+async def rbac_test_documents(
+    db_session_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Document, Document]:
+    """Seed PUBLIC/INTERNAL chunks with cosine-valid test embeddings for RBAC checks."""
+
+    async def _embed_query(_: EmbeddingService, __: str) -> list[float]:
+        return [0.1] * 1024
+
+    monkeypatch.setattr(EmbeddingService, "embed_query", _embed_query)
+
     async with db_session_factory() as session:
         # Public document
         public_doc = Document(
@@ -327,8 +337,15 @@ async def test_citation_title_resolved_at_query_time(
     db_session_factory,
     api_client: AsyncClient,
     student_user: User,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Verify citation title resolves current document title at query time."""
+
+    async def _embed_query(_: EmbeddingService, __: str) -> list[float]:
+        return [0.1] * 1024
+
+    monkeypatch.setattr(EmbeddingService, "embed_query", _embed_query)
+
     async with db_session_factory() as session:
         doc = Document(
             id="doc_title_test_001",
@@ -385,13 +402,13 @@ async def test_citation_title_resolved_at_query_time(
 
 
 def test_evaluate_grounding_empty_and_low_scores():
-    """Test evaluate_grounding_and_citations returns False when empty or score < threshold."""
+    """Grounding rejects empty results and cosine similarity below the configured threshold."""
     # 1. Empty search items
     has_evidence, citations = evaluate_grounding_and_citations([])
     assert has_evidence is False
     assert citations == []
 
-    # 2. Search items all below score_threshold=0.001
+    # 2. Search item below the required cosine threshold.
     low_score_item = SearchResultItem(
         chunk_id="chk_low",
         document_id="doc_low",
@@ -403,10 +420,11 @@ def test_evaluate_grounding_empty_and_low_scores():
         chunk_index=0,
         text="Đoạn văn không liên quan",
         bbox=[0.0, 0.0, 0.0, 0.0],
-        score=0.00005,  # Below 0.001 threshold
+        score=0.00005,
+        vector_score=0.59,
     )
     has_evidence_low, citations_low = evaluate_grounding_and_citations(
-        [low_score_item], score_threshold=0.001
+        [low_score_item], vector_score_threshold=0.6
     )
     assert has_evidence_low is False
     assert citations_low == []

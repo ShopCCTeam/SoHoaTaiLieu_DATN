@@ -76,11 +76,16 @@ class Settings(BaseSettings):
     # ---- OCR ----
     ocr_default_confidence_threshold: float = 0.9
     ocr_default_engine: Literal["paddleocr", "tesseract"] = "paddleocr"
+    ocr_render_dpi: int = Field(default=300, ge=72, le=600)
+    ocr_text_layer_min_characters: int = Field(default=50, ge=1, le=10_000)
 
     # ---- Embedding & RAG ----
     embedding_provider: Literal["bge-m3", "mock"] = "mock"
     embedding_api_url: str = "http://localhost:11434/api/embeddings"
     embedding_model_name: str = "bge-m3"
+
+    # ---- RAG grounding ----
+    rag_vector_score_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
     # ---- LLM Chatbot ----
     llm_provider: Literal["ollama", "mock"] = "mock"

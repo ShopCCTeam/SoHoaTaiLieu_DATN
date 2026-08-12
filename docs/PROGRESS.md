@@ -311,3 +311,63 @@
 - ✅ Error contract = **RFC 7807 Problem Details** (đã update `03-backend-api.mdc`).
 - ✅ Upload pattern = **202 Accepted + job_id** (FE poll `/jobs/{id}`).
 - ✅ Stack chốt ở `docs/adr/0001-backend-stack.md`.
+
+
+---
+
+## 2026-08-12 — B0–B4: Runtime baseline, Worker/MinIO, OCR và RAG guardrail
+
+**B0 — CI/OpenAPI**:
+
+- Đọc run CI thất bại mới nhất `31566347899`: lỗi chặn là hai `$ref` không phân giải tới `DocumentScopeCode` trong contract.
+- Contract hiện tại dùng `DocumentScope` nhất quán; chạy `pnpm openapi:lint` đã **PASS** (`Woohoo! Your API description is valid.`).
+
+**B1 — Docker/PostgreSQL baseline**:
+
+- Đã khởi động Docker Desktop theo ủy quyền và chạy PostgreSQL, Redis, MinIO, API.
+- Phát hiện/sửa hai lỗi runtime chặn baseline: Docker image thiếu `README.md` được khai báo bởi package metadata; image/Compose thiếu `alembic.ini` và migration assets. Compose cũng chuyển `APP_CORS_ORIGINS` sang JSON array đúng format Pydantic Settings.
+- Đã chạy Alembic lên `head`, seed ba tài khoản demo và xác minh `/health/ready` trả PostgreSQL `ok`; login API thành công.
+
+**B2 — Worker và MinIO**:
+
+- `MinioStorageService` đã tự tạo bucket khi upload nên không thêm init trùng lặp.
+- Bổ sung service `worker`, broker/result backend Redis và healthcheck Celery. Worker dùng `uv run celery` vì executable nằm trong virtual environment.
+- Upload PDF synthetic đã đi qua API, MinIO, Redis và worker. Job kết thúc `FAILED` với thông báo `All OCR engines failed` khi chưa có engine OCR thật; điều này xác nhận không có mock OCR chạy âm thầm.
+
+**B3 — OCR thật và đồng bộ 300 DPI**:
+
+- Thêm `ocr_render_dpi=300` và `ocr_text_layer_min_characters=50` vào config để inference đồng bộ DPI với dataset fine-tune.
+- Pipeline ưu tiên `page.get_text("text")`: trang có ít nhất 50 ký tự text layer được lưu trực tiếp; trang scan được render RGB qua PyMuPDF tại DPI cấu hình trước PaddleOCR/Tesseract.
+- Bổ sung dependency runtime cho PyMuPDF, PaddlePaddle/PaddleOCR, Pillow, pytesseract và binary Tesseract có language pack tiếng Việt. Image API/worker đã rebuild và hai container đang healthy.
+- Kiểm chứng runtime: PDF text layer bypass OCR; PDF scan trắng render kích thước `2480x3509` tại 300 DPI rồi đi qua Tesseract. Chưa thực hiện benchmark CER/WER hoặc kiểm thử chất lượng với PDF scan tiếng Việt thật.
+
+**B4 — RAG grounding**:
+
+- Thêm `rag_vector_score_threshold=0.6` vào config. Guardrail chỉ chấp nhận evidence nếu `vector_score` cosine đạt ngưỡng; RRF `score` chỉ giữ vai trò xếp hạng/citation.
+- Test mới xác minh kết quả RRF cao nhưng cosine `0.59` vẫn bị từ chối, cosine `0.60` được chấp nhận và thiếu `vector_score` bị từ chối.
+
+**Bằng chứng đã chạy**:
+
+| Gate | Kết quả |
+|---|---|
+| OpenAPI lint | ✅ `pnpm openapi:lint` PASS |
+| Targeted backend tests | ✅ `uv run pytest tests/test_chat_grounding.py tests/test_ocr.py -q --tb=short` — 11 passed |
+| Docker runtime | ✅ PostgreSQL, Redis, MinIO, API, Worker đang healthy |
+| OCR runtime smoke | ✅ text layer + render 300 DPI/Tesseract; ⚠️ chưa benchmark PDF scan tiếng Việt thật |
+
+**Phần còn lại trước khi đóng hẳn**:
+
+- Chạy full quality gate (Ruff, mypy, toàn bộ pytest, frontend và `pnpm check`).
+- So sánh OpenAPI runtime với contract bằng `oasdiff` khi binary/toolchain sẵn sàng.
+- Chạy E2E upload một PDF scan tiếng Việt đã được phê duyệt, đánh giá CER/WER và kiểm tra PaddleOCR thật.
+- Không push/commit trong lần thực hiện này.
+
+
+**B5 — Governance, contract diff và quality gate**:
+
+- Quét `.agents/` trước khi thay đổi tracking: 239 tệp, 239 tệp đang được Git theo dõi. Không thấy pattern secret độ tin cậy cao (AWS/GitHub/GitLab/Slack/Stripe/private key hoặc assignment token mật độ cao). Sau đó thêm `.agents/` vào `.gitignore` và chạy `git rm -r --cached .agents`; toàn bộ 239 tệp vẫn còn trên đĩa, không bị xóa. `docs/ai-usage.md` mô tả quy trình AI và yêu cầu evidence có thể lặp lại.
+- Chạy đúng lệnh `oasdiff` trong CI bằng image `tufin/oasdiff:latest`. Lệnh hoàn tất exit `0` và sinh diff thông tin (31,746 bytes), phù hợp với chú thích CI rằng runtime chưa bao phủ toàn bộ endpoint tương lai trong contract; không bật fail-on-diff.
+- Backend static gate sau thay đổi: Ruff check PASS, Ruff format check PASS và mypy PASS (62 source files). `pnpm openapi:lint` PASS. Frontend type-check, lint (1 warning dependency có sẵn), 31 unit tests và build đã đi hết bước compile/generate 12 static pages; runner Windows không trả prompt sau khi artifact `.next/BUILD_ID` được tạo.
+- Các test trực tiếp bị ảnh hưởng đều pass, gồm 11 test OCR/RAG targeted, 6 chat router tests, SSE citation event, RBAC citation scope, citation title và MinIO unavailable path. Full backend suite với Postgres Docker chạy qua 100% progress sau khi xử lý các failure nhưng runner không kết thúc ở teardown; không ghi nhận full-suite PASS cho tới khi hiện tượng connection teardown được xử lý.
+
+> Lưu ý: full-suite runner có cảnh báo SQLAlchemy về connection chưa được trả về pool trong teardown. Đây là hạn chế kiểm chứng hiện tại, không được xem là bằng chứng full-suite clean.

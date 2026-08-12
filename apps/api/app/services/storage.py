@@ -76,7 +76,7 @@ class MinioStorageService(StorageService):
         self, file_bytes: bytes, object_key: str, content_type: str = "application/pdf"
     ) -> str:
         try:
-            from minio import Minio  # type: ignore[import-not-found]
+            from minio import Minio
 
             client = Minio(
                 self.settings.minio_endpoint,

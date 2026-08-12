@@ -72,17 +72,61 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-ctsv_app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ctsv_dev_password}
       REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-in-production}
-      APP_CORS_ORIGINS: http://localhost:3000
+      APP_CORS_ORIGINS: '["http://localhost:3000"]'
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ../../apps/api/app:/app/app
       - ../../apps/api/tests:/app/tests
       - ../../apps/api/alembic:/app/alembic
+      - ../../apps/api/alembic.ini:/app/alembic.ini:ro
+      - ../../apps/api/pyproject.toml:/app/pyproject.toml
+
+  worker:
+    build:
+      context: ../../apps/api
+      dockerfile: ../../infra/docker/Dockerfile.api
+    container_name: ctsv-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-ctsv}
+      POSTGRES_USER: ${POSTGRES_USER:-ctsv_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ctsv_dev_password}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-in-production}
+      APP_CORS_ORIGINS: '["http://localhost:3000"]'
+    command: uv run celery -A app.worker.celery_app worker --loglevel=info --queues=documents
+    healthcheck:
+      test: ["CMD-SHELL", "uv run celery -A app.worker.celery_app inspect ping -d celery@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    volumes:
+      - ../../apps/api/app:/app/app
+      - ../../apps/api/alembic:/app/alembic
+      - ../../apps/api/alembic.ini:/app/alembic.ini:ro
       - ../../apps/api/pyproject.toml:/app/pyproject.toml
 
 volumes:

@@ -1,21 +1,28 @@
-"""OCR Engine Service using Strategy pattern (PaddleOCR primary, Tesseract fallback).
+"""OCR strategies for scanned and text-layer PDFs.
 
-Handles bounding box extraction [x0, y0, x1, y1], confidence score evaluation,
-and thresholding (OCR_CONFIDENCE_THRESHOLD = 0.80).
+Render scanned pages with PyMuPDF at the configured DPI. If a page already has
+at least the configured amount of selectable text, preserve that text directly
+instead of running OCR. This keeps the inference and fine-tuning render standard
+aligned at 300 DPI by default.
 """
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import Any
 
 from structlog import get_logger
 
+from app.core.config import get_settings
 from app.core.enums import OCRPageStatus, OCRReviewStatus
 
 logger = get_logger(__name__)
 
-OCR_CONFIDENCE_THRESHOLD: float = 0.80
+OCR_CONFIDENCE_THRESHOLD: float = 0.9
+OCR_RENDER_DPI: int = 300
+OCR_TEXT_LAYER_MIN_CHARACTERS: int = 50
 
 
 @dataclass
@@ -24,7 +31,7 @@ class OcrBlockResult:
     block_index: int
     text_content: str
     confidence: float
-    bbox: list[float]  # [x0, y0, x1, y1]
+    bbox: list[float]
     requires_review: bool = False
     review_status: str = OCRReviewStatus.APPROVED.value
     processing_time_ms: int = 100
@@ -42,17 +49,92 @@ class OcrPageResult:
     blocks: list[OcrBlockResult] = field(default_factory=list)
 
 
+def has_usable_text_layer(text: str, min_characters: int) -> bool:
+    """Return whether a PDF page contains enough selectable text to skip OCR."""
+    normalized = "".join(text.split())
+    return len(normalized) >= min_characters
+
+
+def build_text_layer_page(
+    *,
+    page_number: int,
+    text: str,
+    width: int,
+    height: int,
+) -> OcrPageResult:
+    """Represent selectable PDF text as one full-page, high-confidence block."""
+    return OcrPageResult(
+        page_number=page_number,
+        width=width,
+        height=height,
+        blocks=[
+            OcrBlockResult(
+                page_number=page_number,
+                block_index=0,
+                text_content=text.strip(),
+                confidence=1.0,
+                bbox=[0.0, 0.0, float(width), float(height)],
+                processing_time_ms=0,
+            )
+        ],
+    )
+
+
 class OcrEngineStrategy(ABC):
-    """Abstract Strategy interface for OCR engines."""
+    """Strategy interface for OCR engines."""
 
     @abstractmethod
     def process_pdf(self, pdf_bytes: bytes) -> list[OcrPageResult]:
-        """Extract pages and text blocks from raw PDF bytes."""
-        pass
+        """Extract page text blocks from a PDF byte stream."""
 
 
-class PaddleOcrStrategy(OcrEngineStrategy):
-    """Primary OCR Engine using PaddleOCR."""
+class _PdfPageRenderer:
+    """Shared PyMuPDF utilities for native OCR strategies."""
+
+    def __init__(self, render_dpi: int, text_layer_min_characters: int) -> None:
+        self.render_dpi = render_dpi
+        self.text_layer_min_characters = text_layer_min_characters
+
+    def _load_fitz(self) -> Any:
+        try:
+            import fitz
+        except ImportError as err:
+            msg = "PyMuPDF (fitz) is not installed — required to render PDF pages"
+            raise RuntimeError(msg) from err
+        return fitz
+
+    def _text_layer_page(self, page: Any, page_number: int) -> OcrPageResult | None:
+        text = page.get_text("text")
+        if not has_usable_text_layer(text, self.text_layer_min_characters):
+            return None
+
+        rect = page.rect
+        return build_text_layer_page(
+            page_number=page_number,
+            text=text,
+            width=int(round(rect.width)),
+            height=int(round(rect.height)),
+        )
+
+    def _render_page(self, page: Any) -> Any:
+        """Render an RGB page at the shared OCR/training DPI."""
+        fitz = self._load_fitz()
+        return page.get_pixmap(
+            dpi=self.render_dpi,
+            colorspace=fitz.csRGB,
+            alpha=False,
+        )
+
+
+class PaddleOcrStrategy(_PdfPageRenderer, OcrEngineStrategy):
+    """Primary OCR engine using PaddleOCR on rendered scanned pages."""
+
+    def __init__(
+        self,
+        render_dpi: int = OCR_RENDER_DPI,
+        text_layer_min_characters: int = OCR_TEXT_LAYER_MIN_CHARACTERS,
+    ) -> None:
+        super().__init__(render_dpi, text_layer_min_characters)
 
     def process_pdf(self, pdf_bytes: bytes) -> list[OcrPageResult]:
         try:
@@ -62,174 +144,204 @@ class PaddleOcrStrategy(OcrEngineStrategy):
             raise RuntimeError(msg) from err
 
         try:
+            import numpy as np
+
+            fitz = self._load_fitz()
             ocr = PaddleOCR(use_angle_cls=True, lang="vi", show_log=False)
-            # Standard execution path if paddleocr is configured
-            results = ocr.ocr(pdf_bytes, cls=True)
             pages: list[OcrPageResult] = []
 
-            for p_idx, page_res in enumerate(results, start=1):
-                blocks: list[OcrBlockResult] = []
-                if page_res:
-                    for b_idx, line in enumerate(page_res):
-                        # line format: [ [[x0,y0],[x1,y1],[x2,y2],[x3,y3]], (text, confidence) ]
-                        points, (text, confidence) = line
-                        xs = [p[0] for p in points]
-                        ys = [p[1] for p in points]
-                        bbox = [float(min(xs)), float(min(ys)), float(max(xs)), float(max(ys))]
-                        blocks.append(
-                            OcrBlockResult(
-                                page_number=p_idx,
-                                block_index=b_idx,
-                                text_content=str(text),
-                                confidence=float(confidence),
-                                bbox=bbox,
-                            )
-                        )
-                pages.append(
-                    OcrPageResult(
-                        page_number=p_idx,
-                        blocks=blocks,
+            with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
+                for page_number, page in enumerate(document, start=1):
+                    text_page = self._text_layer_page(page, page_number)
+                    if text_page is not None:
+                        pages.append(text_page)
+                        continue
+
+                    started = time.perf_counter()
+                    pix = self._render_page(page)
+                    image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                        pix.height, pix.width, pix.n
                     )
-                )
+                    results = ocr.ocr(image, cls=True)
+                    blocks = _paddle_blocks(results, page_number, pix.width, pix.height)
+                    elapsed_ms = int((time.perf_counter() - started) * 1000)
+                    for block in blocks:
+                        block.processing_time_ms = elapsed_ms
+                    pages.append(
+                        OcrPageResult(
+                            page_number=page_number,
+                            width=pix.width,
+                            height=pix.height,
+                            blocks=blocks,
+                        )
+                    )
             return pages
         except Exception as exc:
             raise RuntimeError(f"PaddleOCR execution failed: {exc}") from exc
 
 
-class TesseractOcrStrategy(OcrEngineStrategy):
-    """Fallback OCR Engine using Tesseract OCR."""
+class TesseractOcrStrategy(_PdfPageRenderer, OcrEngineStrategy):
+    """Fallback OCR engine using Tesseract on rendered scanned pages."""
+
+    def __init__(
+        self,
+        render_dpi: int = OCR_RENDER_DPI,
+        text_layer_min_characters: int = OCR_TEXT_LAYER_MIN_CHARACTERS,
+    ) -> None:
+        super().__init__(render_dpi, text_layer_min_characters)
 
     def process_pdf(self, pdf_bytes: bytes) -> list[OcrPageResult]:
         try:
             import pytesseract  # type: ignore[import-not-found]
+            from PIL import Image
         except ImportError as err:
-            msg = "Tesseract (pytesseract) is not installed in the current environment"
+            msg = "Tesseract (pytesseract) and Pillow are required for fallback OCR"
             raise RuntimeError(msg) from err
 
         try:
-            # Process via pytesseract image / pdf data
-            data = pytesseract.image_to_data(pdf_bytes, output_type=pytesseract.Output.DICT)
-            blocks: list[OcrBlockResult] = []
-            n_boxes = len(data.get("text", []))
+            fitz = self._load_fitz()
+            pages: list[OcrPageResult] = []
 
-            for i in range(n_boxes):
-                text = data["text"][i].strip()
-                conf_str = data["conf"][i]
-                if text and int(conf_str) > 0:
-                    conf = float(conf_str) / 100.0
-                    x, y, w, h = (
-                        float(data["left"][i]),
-                        float(data["top"][i]),
-                        float(data["width"][i]),
-                        float(data["height"][i]),
-                    )
-                    blocks.append(
-                        OcrBlockResult(
-                            page_number=1,
-                            block_index=len(blocks),
-                            text_content=text,
-                            confidence=conf,
-                            bbox=[x, y, x + w, y + h],
+            with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
+                for page_number, page in enumerate(document, start=1):
+                    text_page = self._text_layer_page(page, page_number)
+                    if text_page is not None:
+                        pages.append(text_page)
+                        continue
+
+                    started = time.perf_counter()
+                    pix = self._render_page(page)
+                    image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+                    blocks = _tesseract_blocks(data, page_number)
+                    elapsed_ms = int((time.perf_counter() - started) * 1000)
+                    for block in blocks:
+                        block.processing_time_ms = elapsed_ms
+                    pages.append(
+                        OcrPageResult(
+                            page_number=page_number,
+                            width=pix.width,
+                            height=pix.height,
+                            blocks=blocks,
                         )
                     )
-
-            return [OcrPageResult(page_number=1, blocks=blocks)]
+            return pages
         except Exception as exc:
             raise RuntimeError(f"Tesseract execution failed: {exc}") from exc
 
 
+def _paddle_blocks(
+    results: list[Any] | None,
+    page_number: int,
+    width: int,
+    height: int,
+) -> list[OcrBlockResult]:
+    """Convert PaddleOCR's quadrilateral output to rectangular block DTOs."""
+    if not results or not results[0]:
+        return []
+
+    blocks: list[OcrBlockResult] = []
+    for block_index, line in enumerate(results[0]):
+        points, (text, confidence) = line
+        xs = [point[0] for point in points]
+        ys = [point[1] for point in points]
+        blocks.append(
+            OcrBlockResult(
+                page_number=page_number,
+                block_index=block_index,
+                text_content=str(text),
+                confidence=float(confidence),
+                bbox=[
+                    max(0.0, float(min(xs))),
+                    max(0.0, float(min(ys))),
+                    min(float(width), float(max(xs))),
+                    min(float(height), float(max(ys))),
+                ],
+            )
+        )
+    return blocks
+
+
+def _tesseract_blocks(data: dict[str, list[Any]], page_number: int) -> list[OcrBlockResult]:
+    """Convert Tesseract's tabular result into OCR block DTOs."""
+    blocks: list[OcrBlockResult] = []
+    for index, raw_text in enumerate(data.get("text", [])):
+        text = str(raw_text).strip()
+        confidence = float(data["conf"][index])
+        if not text or confidence <= 0:
+            continue
+        x = float(data["left"][index])
+        y = float(data["top"][index])
+        width = float(data["width"][index])
+        height = float(data["height"][index])
+        blocks.append(
+            OcrBlockResult(
+                page_number=page_number,
+                block_index=len(blocks),
+                text_content=text,
+                confidence=confidence / 100.0,
+                bbox=[x, y, x + width, y + height],
+            )
+        )
+    return blocks
+
+
 class FallbackMockOcrStrategy(OcrEngineStrategy):
-    """Deterministic fallback strategy for dev/test when native OCR C++ binaries are absent."""
+    """Deterministic test-only strategy; never used without explicit opt-in."""
 
     def process_pdf(self, pdf_bytes: bytes) -> list[OcrPageResult]:
-        # Check if PDF bytes contain specific test triggers or default content
-        text_preview = pdf_bytes[:500].decode("latin1", errors="ignore")
-
-        # Determine if suspicious test mode requested
-        is_suspicious_test = "LOW_CONFIDENCE_TEST" in text_preview or b"suspicious" in pdf_bytes
-
-        blocks: list[OcrBlockResult] = [
-            OcrBlockResult(
-                page_number=1,
-                block_index=0,
-                text_content="CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM",
-                confidence=0.98,
-                bbox=[54.0, 720.0, 540.0, 745.0],
-                processing_time_ms=120,
-            ),
-            OcrBlockResult(
-                page_number=1,
-                block_index=1,
-                text_content="Độc lập - Tự do - Hạnh phúc",
-                confidence=0.95,
-                bbox=[180.0, 695.0, 420.0, 715.0],
-                processing_time_ms=90,
-            ),
-        ]
-
-        if is_suspicious_test:
-            # Add a block with confidence < 0.80 to trigger requires_review
-            blocks.append(
-                OcrBlockResult(
-                    page_number=1,
-                    block_index=2,
-                    text_content="Quyết định số 123/QĐ-CTSV về việc khen thưởng sinh viên",
-                    confidence=0.65,  # Below 0.80 threshold!
-                    bbox=[100.0, 650.0, 500.0, 675.0],
-                    processing_time_ms=150,
-                )
-            )
-        else:
-            blocks.append(
-                OcrBlockResult(
-                    page_number=1,
-                    block_index=2,
-                    text_content="Quyết định số 123/QĐ-CTSV về việc khen thưởng sinh viên",
-                    confidence=0.92,
-                    bbox=[100.0, 650.0, 500.0, 675.0],
-                    processing_time_ms=110,
-                )
-            )
-
+        suspicious = b"LOW_CONFIDENCE_TEST" in pdf_bytes or b"suspicious" in pdf_bytes
+        low_confidence = 0.65 if suspicious else 0.92
         return [
             OcrPageResult(
                 page_number=1,
-                width=612,
-                height=792,
-                blocks=blocks,
+                blocks=[
+                    OcrBlockResult(
+                        page_number=1,
+                        block_index=0,
+                        text_content="CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM",
+                        confidence=0.98,
+                        bbox=[54.0, 720.0, 540.0, 745.0],
+                    ),
+                    OcrBlockResult(
+                        page_number=1,
+                        block_index=1,
+                        text_content="Quyết định số 123/QĐ-CTSV",
+                        confidence=low_confidence,
+                        bbox=[100.0, 650.0, 500.0, 675.0],
+                    ),
+                ],
             )
         ]
 
 
 class OcrEngineService:
-    """OCR Engine Service using Strategy pattern."""
+    """Select primary/fallback engines and apply review threshold consistently."""
 
     def __init__(
         self,
         primary_engine: OcrEngineStrategy | None = None,
         fallback_engine: OcrEngineStrategy | None = None,
-        confidence_threshold: float = OCR_CONFIDENCE_THRESHOLD,
+        confidence_threshold: float | None = None,
     ) -> None:
-        self.primary_engine = primary_engine or PaddleOcrStrategy()
-        self.fallback_engine = fallback_engine or TesseractOcrStrategy()
+        settings = get_settings()
+        self.primary_engine = primary_engine or PaddleOcrStrategy(
+            settings.ocr_render_dpi,
+            settings.ocr_text_layer_min_characters,
+        )
+        self.fallback_engine = fallback_engine or TesseractOcrStrategy(
+            settings.ocr_render_dpi,
+            settings.ocr_text_layer_min_characters,
+        )
         self.mock_engine = FallbackMockOcrStrategy()
-        self.confidence_threshold = confidence_threshold
+        self.confidence_threshold = (
+            confidence_threshold
+            if confidence_threshold is not None
+            else settings.ocr_default_confidence_threshold
+        )
 
     def process_pdf(self, pdf_bytes: bytes, allow_mock: bool = False) -> list[OcrPageResult]:
-        """Process PDF bytes with primary engine, then fallback engine.
-
-        NEVER falls back to mock silently. If both PaddleOCR and Tesseract fail,
-        a RuntimeError is raised — unless ``allow_mock=True`` is explicitly passed
-        (tests only; production/dev must never enable this).
-
-        Enforces thresholding rules:
-        - If block.confidence < confidence_threshold (0.80):
-            requires_review = True, review_status = 'PENDING'
-        - Else:
-            requires_review = False, review_status = 'APPROVED'
-        """
-        pages: list[OcrPageResult] = []
-
+        """Run primary then fallback OCR; use mock only when explicitly requested by tests."""
         try:
             pages = self.primary_engine.process_pdf(pdf_bytes)
             logger.info("ocr_processed_with_primary_engine", engine="paddleocr")
@@ -248,10 +360,9 @@ class OcrEngineService:
                     pages = self.mock_engine.process_pdf(pdf_bytes)
                 else:
                     msg = (
-                        f"All OCR engines failed. "
+                        "All OCR engines failed. "
                         f"Primary (PaddleOCR): {primary_err}. "
-                        f"Fallback (Tesseract): {fallback_err}. "
-                        "Install paddleocr or pytesseract to enable OCR processing."
+                        f"Fallback (Tesseract): {fallback_err}."
                     )
                     logger.error(
                         "all_ocr_engines_failed",
@@ -260,26 +371,24 @@ class OcrEngineService:
                     )
                     raise RuntimeError(msg) from fallback_err
 
-        # Apply confidence score thresholding rules
         for page in pages:
-            page_has_warnings = False
+            page.has_warnings = False
             for block in page.blocks:
                 if block.confidence < self.confidence_threshold:
                     block.requires_review = True
                     block.review_status = OCRReviewStatus.PENDING.value
-                    page_has_warnings = True
+                    page.has_warnings = True
                 else:
                     block.requires_review = False
                     block.review_status = OCRReviewStatus.APPROVED.value
-
-            page.has_warnings = page_has_warnings
             page.block_count = len(page.blocks)
-
         return pages
 
 
 __all__ = [
     "OCR_CONFIDENCE_THRESHOLD",
+    "OCR_RENDER_DPI",
+    "OCR_TEXT_LAYER_MIN_CHARACTERS",
     "FallbackMockOcrStrategy",
     "OcrBlockResult",
     "OcrEngineService",
@@ -287,4 +396,6 @@ __all__ = [
     "OcrPageResult",
     "PaddleOcrStrategy",
     "TesseractOcrStrategy",
+    "build_text_layer_page",
+    "has_usable_text_layer",
 ]

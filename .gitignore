@@ -92,6 +92,8 @@ checkpoints/
 # =========================================================
 # Project-specific
 # =========================================================
+# Local AI-agent audit artifacts; intentionally kept on disk but not versioned.
+.agents/
 logs/
 *.log
 

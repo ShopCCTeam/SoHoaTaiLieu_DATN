@@ -19,8 +19,34 @@ from app.services.ocr_engine import (
     OcrPageResult,
     PaddleOcrStrategy,
     TesseractOcrStrategy,
+    build_text_layer_page,
+    has_usable_text_layer,
 )
 from app.worker.tasks import _async_process_document, process_document_task
+
+
+def test_should_classify_text_layer_at_configured_threshold() -> None:
+    """A page with at least 50 non-whitespace characters is a text PDF page."""
+    assert has_usable_text_layer("x" * 50, min_characters=50) is True
+    assert has_usable_text_layer("x" * 49, min_characters=50) is False
+    assert has_usable_text_layer("  x\n" * 50, min_characters=50) is True
+
+
+def test_should_create_full_page_block_for_text_pdf_page() -> None:
+    """Text-layer pages bypass OCR but keep searchable text and page geometry."""
+    page = build_text_layer_page(
+        page_number=3,
+        text="Nội dung văn bản có sẵn trong PDF.",
+        width=2480,
+        height=3508,
+    )
+
+    assert page.page_number == 3
+    assert page.width == 2480
+    assert page.height == 3508
+    assert len(page.blocks) == 1
+    assert page.blocks[0].confidence == 1.0
+    assert page.blocks[0].bbox == [0.0, 0.0, 2480.0, 3508.0]
 
 
 class FailingStrategy(OcrEngineStrategy):

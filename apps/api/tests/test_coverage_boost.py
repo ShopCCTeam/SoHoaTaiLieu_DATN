@@ -587,7 +587,23 @@ async def test_local_storage_service_methods(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_minio_storage_service_raises_when_unavailable() -> None:
+async def test_minio_storage_service_raises_when_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnavailableMinio:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
+
+        def bucket_exists(self, bucket: str) -> bool:
+            raise ConnectionError(f"MinIO unavailable for {bucket}")
+
+        def get_object(self, bucket: str, object_key: str) -> object:
+            raise ConnectionError(f"MinIO unavailable for {bucket}/{object_key}")
+
+        def remove_object(self, bucket: str, object_key: str) -> None:
+            raise ConnectionError(f"MinIO unavailable for {bucket}/{object_key}")
+
+    monkeypatch.setattr("minio.Minio", UnavailableMinio)
     minio_service = MinioStorageService()
     object_key = "test_fallback/sample.pdf"
 

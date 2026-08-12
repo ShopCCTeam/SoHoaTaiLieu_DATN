@@ -9,15 +9,22 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 WORKDIR /app
 
-# Copy pyproject + lock trước để cache layer.
-COPY pyproject.toml uv.lock* ./
+# Copy package metadata trước để cache layer. `README.md` được khai báo trong pyproject.
+COPY pyproject.toml uv.lock* README.md ./
 
-# Install dependencies (không cần dev deps cho runtime image).
-RUN uv sync --frozen --no-dev || uv sync --no-dev
+# Install Tesseract fallback runtime (Vietnamese language data included).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-vie \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy source (production image).
+# Install runtime dependencies, including the optional real OCR engines.
+RUN uv sync --frozen --no-dev --extra ocr || uv sync --no-dev --extra ocr
+
+# Copy source và migration assets (production image).
 # Trong docker-compose dev, volume mount sẽ override source.
 COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
 
 EXPOSE 8000
 

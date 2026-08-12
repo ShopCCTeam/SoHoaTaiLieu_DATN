@@ -26,13 +26,23 @@ from app.models.document_chunk import DocumentChunk
 from app.models.document_version import DocumentVersion
 from app.models.user import User
 from app.modules.search.schemas import SearchResponse
+from app.services.embedding import EmbeddingService
 from app.services.llm import AbstractLLMProvider
 from tests.conftest import auth_headers_for
 
 
 @pytest.fixture
-async def sample_doc_for_challenger(db_session_factory) -> Document:
-    """Seed sample document and chunks for RAG grounding in challenger tests."""
+async def sample_doc_for_challenger(
+    db_session_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Document:
+    """Seed a chunk whose deterministic test embedding clears the cosine guardrail."""
+
+    async def _embed_query(_: EmbeddingService, __: str) -> list[float]:
+        return [0.2] * 1024
+
+    monkeypatch.setattr(EmbeddingService, "embed_query", _embed_query)
+
     async with db_session_factory() as session:
         doc = Document(
             id="doc_challenger_01",

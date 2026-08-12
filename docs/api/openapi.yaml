@@ -311,7 +311,7 @@ components:
       required: [query]
       properties:
         query: { type: string }
-        scope: { $ref: '#/components/schemas/DocumentScopeCode' }
+        scope: { $ref: '#/components/schemas/DocumentScope' }
         doc_type: { type: string }
         alpha: { type: number, default: 0.5 }
         top_k: { type: integer, default: 10 }
@@ -778,7 +778,7 @@ paths:
         - in: query
           name: scope
           required: false
-          schema: { $ref: '#/components/schemas/DocumentScopeCode' }
+          schema: { $ref: '#/components/schemas/DocumentScope' }
         - in: query
           name: type
           required: false

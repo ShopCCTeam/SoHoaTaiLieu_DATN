@@ -1,0 +1,19 @@
+# Redocly lint configuration (contract-first OpenAPI validation).
+# Extends the built-in "recommended" ruleset. A handful of purely stylistic
+# rules are disabled because they flag intentional design decisions:
+#   - operation-operationId: FastAPI generates operationIds at runtime via
+#     `generate_unique_id_function`; the contract intentionally omits them.
+#   - tag-description: tags are self-describing for this internal API.
+#   - info-license: internal (non-published) API, no license required.
+#   - no-server-example.com: the localhost dev server entry is intentional.
+#   - no-unused-components: several schemas (DocumentVersion, Job, ChatResponse,
+#     RateLimited) are reserved for upcoming endpoints and kept on purpose.
+extends:
+  - recommended
+
+rules:
+  operation-operationId: off
+  tag-description: off
+  info-license: off
+  no-server-example.com: off
+  no-unused-components: off

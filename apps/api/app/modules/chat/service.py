@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.errors import forbidden, not_found
 from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
@@ -36,15 +37,27 @@ def truncate_quote(text: str, max_length: int = 300) -> str:
 
 def evaluate_grounding_and_citations(
     search_items: list[SearchResultItem],
-    score_threshold: float = 0.005,
+    vector_score_threshold: float | None = None,
 ) -> tuple[bool, list[CitationSchema]]:
-    """Evaluate if retrieved search results provide sufficient grounding evidence
-    and construct valid citation schemas matching citation-spec.md.
+    """Evaluate evidence using cosine similarity, not the RRF ranking score.
+
+    ``score`` is a small Reciprocal Rank Fusion value and is deliberately kept
+    for ranking/citation display only. Grounding must use ``vector_score`` on its
+    stable cosine scale [0, 1], so weak matches cannot bypass the no-answer path.
     """
     if not search_items:
         return False, []
 
-    valid_items = [item for item in search_items if item.score >= score_threshold]
+    threshold = (
+        vector_score_threshold
+        if vector_score_threshold is not None
+        else get_settings().rag_vector_score_threshold
+    )
+    valid_items = [
+        item
+        for item in search_items
+        if item.vector_score is not None and item.vector_score >= threshold
+    ]
     if not valid_items:
         return False, []
 
