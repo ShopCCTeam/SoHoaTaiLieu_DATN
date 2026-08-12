@@ -587,19 +587,20 @@ async def test_local_storage_service_methods(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_minio_storage_service_fallbacks() -> None:
+async def test_minio_storage_service_raises_when_unavailable() -> None:
     minio_service = MinioStorageService()
     object_key = "test_fallback/sample.pdf"
 
-    # Direct calls trigger fallback to LocalStorageService
-    # when MinIO client throws exception/import error
-    url = await minio_service.upload_file(VALID_PDF_BYTES, object_key)
-    assert "/storage/" in url
+    # MinIO unavailable (package/service missing) -> operations must raise,
+    # NOT silently fall back to LocalStorageService.
+    with pytest.raises(RuntimeError, match="MinIO upload failed"):
+        await minio_service.upload_file(VALID_PDF_BYTES, object_key)
 
-    downloaded = await minio_service.download_file(object_key)
-    assert downloaded == VALID_PDF_BYTES
+    with pytest.raises(RuntimeError, match="MinIO download failed"):
+        await minio_service.download_file(object_key)
 
-    await minio_service.delete_file(object_key)
+    with pytest.raises(RuntimeError, match="MinIO delete failed"):
+        await minio_service.delete_file(object_key)
 
 
 @pytest.mark.asyncio

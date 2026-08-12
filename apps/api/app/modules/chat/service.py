@@ -36,7 +36,7 @@ def truncate_quote(text: str, max_length: int = 300) -> str:
 
 def evaluate_grounding_and_citations(
     search_items: list[SearchResultItem],
-    score_threshold: float = 0.001,
+    score_threshold: float = 0.005,
 ) -> tuple[bool, list[CitationSchema]]:
     """Evaluate if retrieved search results provide sufficient grounding evidence
     and construct valid citation schemas matching citation-spec.md.

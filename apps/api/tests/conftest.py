@@ -54,6 +54,44 @@ def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     yield
 
 
+@pytest.fixture(autouse=True)
+def _force_local_storage():
+    """Force LocalStorageService cho mọi test.
+
+    Production `get_storage_service()` chỉ trả LocalStorageService khi
+    app_env == "test". Nhiều test chạy dưới app_env khác (development/
+    staging/production) → sẽ nhận MinioStorageService và fail vì package
+    `minio` không được cài. Reset storage singleton về LocalStorageService
+    trước mỗi test, teardown về None để không rò rỉ giữa các test.
+    """
+    from app.services import storage as storage_module
+    from app.services.storage import LocalStorageService
+
+    storage_module._storage_instance = LocalStorageService()
+    yield
+    storage_module._storage_instance = None
+
+
+@pytest.fixture(autouse=True)
+def _mock_ocr_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the worker's OCR step succeed in tests without native engines.
+
+    Production `process_document_task` builds a bare `OcrEngineService()` whose
+    PaddleOCR/Tesseract engines are unavailable in CI/dev; the service now
+    raises (no silent mock). Tests that exercise the full pipeline explicitly
+    inject the deterministic mock strategy as the primary engine here.
+    """
+    import app.worker.tasks as tasks_module
+    from app.services.ocr_engine import FallbackMockOcrStrategy, OcrEngineService
+
+    def _factory(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs.setdefault("primary_engine", FallbackMockOcrStrategy())
+        return OcrEngineService(*args, **kwargs)
+
+    monkeypatch.setattr(tasks_module, "OcrEngineService", _factory)
+    yield
+
+
 # ---------------------------------------------------------------------------
 # Engines
 # ---------------------------------------------------------------------------

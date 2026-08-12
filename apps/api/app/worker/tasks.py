@@ -82,15 +82,12 @@ async def _async_process_document(job_id: str, version_id: str) -> dict[str, Any
             version.ocr_status = "PROCESSING"
             await session.commit()
 
-            # 2. Download PDF bytes from StorageService
+            # 2. Download PDF bytes from StorageService.
+            # No silent placeholder: if download fails the exception propagates to the
+            # outer handler and the job is marked FAILED (correct behaviour).
             storage = get_storage_service()
-            file_bytes = b""
-            try:
-                object_key = f"documents/raw/{version.document_id}/{version.id}.pdf"
-                file_bytes = await storage.download_file(object_key)
-            except Exception as dl_err:
-                logger.warning("storage_download_failed_using_placeholder", error=str(dl_err))
-                file_bytes = b"%PDF-1.4 Mock PDF Content"
+            object_key = f"documents/raw/{version.document_id}/{version.id}.pdf"
+            file_bytes = await storage.download_file(object_key)
 
             job.progress = 30
             await session.commit()
@@ -156,13 +153,10 @@ async def _async_process_document(job_id: str, version_id: str) -> dict[str, Any
             version.status = "UNDER_REVIEW"
             await session.commit()
 
-            # Trigger indexing chunks after OCR succeeds
-            try:
-                await _async_index_document_chunks(version_id)
-            except Exception as index_err:
-                logger.warning(
-                    "auto_indexing_chunks_failed", version_id=version_id, error=str(index_err)
-                )
+            # Trigger indexing chunks after OCR succeeds.
+            # No silent swallow: if indexing fails the exception propagates to the outer
+            # handler, marking the job FAILED instead of SUCCEEDED with empty data.
+            await _async_index_document_chunks(version_id)
 
             logger.info(
                 "process_document_task_succeeded",

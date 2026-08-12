@@ -116,18 +116,17 @@ def test_ocr_strategy_primary_fails_fallback_succeeds() -> None:
     assert pages[0].blocks[0].text_content == "Fallback Text"
 
 
-def test_ocr_strategy_all_fail_triggers_mock_fallback() -> None:
-    """Verify that when both primary and fallback engines fail, mock strategy handles request."""
+def test_ocr_strategy_all_fail_raises_runtime_error() -> None:
+    """When both primary and fallback engines fail, process_pdf raises (no silent mock)."""
     primary = SpyStrategy(should_fail=True)
     fallback = SpyStrategy(should_fail=True)
     service = OcrEngineService(primary_engine=primary, fallback_engine=fallback)
 
-    pages = service.process_pdf(b"dummy pdf bytes")
+    with pytest.raises(RuntimeError, match="All OCR engines failed"):
+        service.process_pdf(b"dummy pdf bytes")
 
     assert primary.called is True
     assert fallback.called is True
-    assert len(pages) > 0
-    assert len(pages[0].blocks) > 0
 
 
 @pytest.mark.parametrize(
@@ -275,6 +274,14 @@ async def test_process_document_task_idempotency_clears_old_pages_and_blocks(
         )
         session.add_all([doc, ver, job])
         await session.commit()
+
+    # Stage the raw PDF in storage so the download step succeeds.
+    from app.services.storage import get_storage_service
+
+    await get_storage_service().upload_file(
+        b"%PDF-1.4 test document bytes",
+        "documents/raw/doc_idempotent_01/ver_idempotent_01.pdf",
+    )
 
     # Run 1st execution
     res1 = await _async_process_document("job_idempotent_01", "ver_idempotent_01")

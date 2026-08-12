@@ -30,6 +30,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.app_log_level)
 
+    # Fail-closed: reject deployment nếu production/staging config yếu (ADR D9)
+    production_issues = settings.validate_production()
+    if production_issues:
+        for issue in production_issues:
+            _logger.error("production_config_issue", issue=issue)
+        if settings.app_env in {"production", "staging"}:
+            msg = "Cannot start in production/staging with insecure configuration: " + "; ".join(
+                production_issues
+            )
+            raise SystemExit(msg)
+
     # operation_id ngắn gọn cho OpenAPI (mặc định FastAPI sinh từ function name).
     app = FastAPI(
         title="Hệ Thống Số Hoá Tài Liệu CTSV — REST API",
@@ -74,7 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 settings.postgres_url,
                 echo=False,
                 pool_pre_ping=True,
-                connect_timeout=settings.postgres_timeout_seconds,
+                connect_args={"timeout": settings.postgres_timeout_seconds},
             )
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))

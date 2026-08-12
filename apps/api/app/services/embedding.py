@@ -62,13 +62,16 @@ class MockEmbeddingStrategy(EmbeddingStrategy):
 
 
 class BGEM3EmbeddingStrategy(EmbeddingStrategy):
-    """BGE-M3 1024-dim primary adapter with fallback to Mock adapter."""
+    """BGE-M3 1024-dim primary adapter.
+
+    No silent mock fallback: any transport failure or an unexpected/invalid
+    embedding response raises RuntimeError so callers see the real problem.
+    """
 
     def __init__(self, api_url: str | None = None, model_name: str | None = None) -> None:
         settings = get_settings()
         self.api_url = api_url or settings.embedding_api_url
         self.model_name = model_name or settings.embedding_model_name
-        self._fallback = MockEmbeddingStrategy()
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -81,23 +84,26 @@ class BGEM3EmbeddingStrategy(EmbeddingStrategy):
                         self.api_url,
                         json={"model": self.model_name, "prompt": text},
                     )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        emb = data.get("embedding") or (
-                            data.get("data", [{}])[0].get("embedding") if data.get("data") else None
+                    if resp.status_code != 200:
+                        raise RuntimeError(
+                            f"BGE-M3 embedding API returned status {resp.status_code}."
                         )
-                        if emb and isinstance(emb, list) and len(emb) == 1024:
-                            embeddings.append(emb)
-                        else:
-                            fallback_vec = await self._fallback.embed_query(text)
-                            embeddings.append(fallback_vec)
-                    else:
-                        fallback_vec = await self._fallback.embed_query(text)
-                        embeddings.append(fallback_vec)
+                    data = resp.json()
+                    emb = data.get("embedding") or (
+                        data.get("data", [{}])[0].get("embedding") if data.get("data") else None
+                    )
+                    if not (emb and isinstance(emb, list) and len(emb) == 1024):
+                        raise RuntimeError(
+                            "BGE-M3 embedding API returned an invalid embedding "
+                            "(expected a 1024-dim vector)."
+                        )
+                    embeddings.append(emb)
                 return embeddings
         except Exception as exc:
-            logger.warning("bge_m3_embedding_failed_fallback_to_mock", error=str(exc))
-            return await self._fallback.embed_texts(texts)
+            raise RuntimeError(
+                f"BGE-M3 embedding API failed: {exc}. "
+                "Ensure Ollama is running with bge-m3 model loaded."
+            ) from exc
 
     async def embed_query(self, query: str) -> list[float]:
         results = await self.embed_texts([query])

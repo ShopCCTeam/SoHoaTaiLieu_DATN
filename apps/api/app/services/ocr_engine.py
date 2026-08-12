@@ -215,8 +215,12 @@ class OcrEngineService:
         self.mock_engine = FallbackMockOcrStrategy()
         self.confidence_threshold = confidence_threshold
 
-    def process_pdf(self, pdf_bytes: bytes) -> list[OcrPageResult]:
-        """Process PDF bytes with primary engine, fallback engine, or mock fallback.
+    def process_pdf(self, pdf_bytes: bytes, allow_mock: bool = False) -> list[OcrPageResult]:
+        """Process PDF bytes with primary engine, then fallback engine.
+
+        NEVER falls back to mock silently. If both PaddleOCR and Tesseract fail,
+        a RuntimeError is raised — unless ``allow_mock=True`` is explicitly passed
+        (tests only; production/dev must never enable this).
 
         Enforces thresholding rules:
         - If block.confidence < confidence_threshold (0.80):
@@ -235,8 +239,26 @@ class OcrEngineService:
                 pages = self.fallback_engine.process_pdf(pdf_bytes)
                 logger.info("ocr_processed_with_fallback_engine", engine="tesseract")
             except Exception as fallback_err:
-                logger.warning("fallback_ocr_failed_using_mock", error=str(fallback_err))
-                pages = self.mock_engine.process_pdf(pdf_bytes)
+                if allow_mock:
+                    logger.warning(
+                        "all_ocr_engines_failed_using_mock_explicit_opt_in",
+                        primary=str(primary_err),
+                        fallback=str(fallback_err),
+                    )
+                    pages = self.mock_engine.process_pdf(pdf_bytes)
+                else:
+                    msg = (
+                        f"All OCR engines failed. "
+                        f"Primary (PaddleOCR): {primary_err}. "
+                        f"Fallback (Tesseract): {fallback_err}. "
+                        "Install paddleocr or pytesseract to enable OCR processing."
+                    )
+                    logger.error(
+                        "all_ocr_engines_failed",
+                        primary=str(primary_err),
+                        fallback=str(fallback_err),
+                    )
+                    raise RuntimeError(msg) from fallback_err
 
         # Apply confidence score thresholding rules
         for page in pages:

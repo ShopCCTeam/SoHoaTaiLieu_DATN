@@ -206,6 +206,13 @@ async def test_transaction_commit_before_celery_dispatch(
         session.add_all([doc, ver, job])
         await session.commit()
 
+        from app.services.storage import get_storage_service
+
+        await get_storage_service().upload_file(
+            b"%PDF-1.4 test document bytes",
+            f"documents/raw/{doc_id}/{ver_id}.pdf",
+        )
+
         # Task dispatch executes safely without crashing
         process_document_task.delay(job_id, ver_id)
 

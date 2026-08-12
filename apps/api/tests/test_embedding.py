@@ -50,14 +50,11 @@ async def test_mock_embedding_batch() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bge_m3_embedding_fallback() -> None:
+async def test_bge_m3_embedding_raises_on_unreachable_api() -> None:
+    """BGE-M3 no longer silently falls back to mock: unreachable API must raise."""
     strategy = BGEM3EmbeddingStrategy(api_url="http://127.0.0.1:59999/invalid-endpoint")
-    vectors = await strategy.embed_texts(["Nội dung test fallback"])
-
-    assert len(vectors) == 1
-    assert len(vectors[0]) == 1024
-    norm = math.sqrt(sum(x * x for x in vectors[0]))
-    assert math.isclose(norm, 1.0, rel_tol=1e-5)
+    with pytest.raises(RuntimeError, match="BGE-M3 embedding API failed"):
+        await strategy.embed_texts(["Nội dung test fallback"])
 
 
 @pytest.mark.asyncio

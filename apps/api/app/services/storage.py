@@ -97,9 +97,8 @@ class MinioStorageService(StorageService):
             )
             return f"s3://{bucket}/{object_key}"
         except Exception as e:
-            logger.warning("minio_upload_fallback_local", error=str(e))
-            fallback = LocalStorageService()
-            return await fallback.upload_file(file_bytes, object_key, content_type)
+            logger.error("minio_upload_failed", error=str(e))
+            raise RuntimeError(f"MinIO upload failed: {e}. Check MinIO service status.") from e
 
     async def download_file(self, object_key: str) -> bytes:
         try:
@@ -120,9 +119,8 @@ class MinioStorageService(StorageService):
                 response.close()
                 response.release_conn()
         except Exception as e:
-            logger.warning("minio_download_fallback_local", error=str(e))
-            fallback = LocalStorageService()
-            return await fallback.download_file(object_key)
+            logger.error("minio_download_failed", error=str(e))
+            raise RuntimeError(f"MinIO download failed: {e}. Check MinIO service status.") from e
 
     async def delete_file(self, object_key: str) -> None:
         try:
@@ -138,9 +136,8 @@ class MinioStorageService(StorageService):
             clean_key = object_key.replace(f"s3://{bucket}/", "").replace("/storage/", "")
             client.remove_object(bucket, clean_key)
         except Exception as e:
-            logger.warning("minio_delete_fallback_local", error=str(e))
-            fallback = LocalStorageService()
-            await fallback.delete_file(object_key)
+            logger.error("minio_delete_failed", error=str(e))
+            raise RuntimeError(f"MinIO delete failed: {e}. Check MinIO service status.") from e
 
 
 _storage_instance: StorageService | None = None

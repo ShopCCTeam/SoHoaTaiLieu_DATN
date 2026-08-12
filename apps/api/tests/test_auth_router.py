@@ -981,6 +981,12 @@ async def test_cookie_secure_env_matrix(
     get_settings.cache_clear()
     monkeypatch.setenv("APP_ENV", app_env)
     monkeypatch.setenv("REFRESH_COOKIE_SECURE", str(refresh_cookie_secure).lower())
+    # staging/production kích hoạt validate_production() fail-closed → SystemExit
+    # với secret mặc định. Test này chỉ quan tâm cookie Secure flag, nên set các
+    # secret mà validate_production() kiểm tra sang giá trị mạnh non-default.
+    monkeypatch.setenv("POSTGRES_PASSWORD", "super-strong-postgres-password-123456")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "super-strong-minio-secret-key-123456")
+    monkeypatch.setenv("JWT_SECRET", "super-strong-jwt-secret-must-be-32-bytes-or-more!")
     get_settings.cache_clear()
 
     # Tạo user để login
@@ -1026,3 +1032,31 @@ async def test_cookie_secure_env_matrix(
             f"app_env={app_env} refresh_cookie_secure={refresh_cookie_secure} "
             f"→ Secure phải KHÔNG có trong Set-Cookie, có: {set_cookie!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# validate_production() — fail-closed (ADR D9)
+# ---------------------------------------------------------------------------
+
+
+def test_create_app_raises_systemexit_in_production_with_insecure_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """APP_ENV=production + secret mặc định insecure → create_app() raises SystemExit.
+
+    validate_production() flag JWT_SECRET/POSTGRES_PASSWORD/MINIO_SECRET_KEY default
+    và main.create_app() fail-closed (SystemExit) khi app_env ∈ {production, staging}.
+    """
+    from app.main import create_app
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "dev-only-change-in-production-use-32-plus-bytes")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "ctsv_dev_password")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "minioadmin")
+    get_settings.cache_clear()
+
+    with pytest.raises(SystemExit):
+        create_app()
+
+    get_settings.cache_clear()

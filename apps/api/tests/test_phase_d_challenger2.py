@@ -6,7 +6,6 @@ Created by Challenger 2 Phase D.
 from __future__ import annotations
 
 import importlib.util
-import math
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -85,46 +84,50 @@ async def test_bge_m3_embedding_strategy_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bge_m3_embedding_strategy_invalid_dim_fallback() -> None:
-    """Test BGEM3EmbeddingStrategy fallback when API returns invalid dimension (512)."""
+async def test_bge_m3_embedding_strategy_invalid_dim_raises() -> None:
+    """BGEM3EmbeddingStrategy raises when API returns an invalid dimension (512)."""
     url = "http://127.0.0.1:59999/embed"
     strategy = BGEM3EmbeddingStrategy(api_url=url, model_name="bge-m3")
     invalid_vec = [0.1] * 512
 
     mock_resp = Response(200, json={"embedding": invalid_vec})
     with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_resp):
-        vec_fallback_dim = await strategy.embed_query("Quy chế học tập 2026")
-        assert len(vec_fallback_dim) == 1024
-        norm = math.sqrt(sum(x * x for x in vec_fallback_dim))
-        assert math.isclose(norm, 1.0, rel_tol=1e-5)
+        with pytest.raises(RuntimeError, match="BGE-M3 embedding API failed"):
+            await strategy.embed_query("Quy chế học tập 2026")
 
 
 @pytest.mark.asyncio
-async def test_bge_m3_embedding_strategy_http_500_fallback() -> None:
-    """Test BGEM3EmbeddingStrategy falls back to Mock 1024-dim under HTTP 500 error."""
+async def test_bge_m3_embedding_strategy_http_500_raises() -> None:
+    """BGEM3EmbeddingStrategy raises under HTTP 500 (no silent mock fallback)."""
     url = "http://127.0.0.1:59999/embed"
     strategy = BGEM3EmbeddingStrategy(api_url=url, model_name="bge-m3")
 
     mock_resp = Response(500, text="Internal Error")
     with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_resp):
-        vec_fallback_500 = await strategy.embed_query("Quy chế học tập 2026")
-        assert len(vec_fallback_500) == 1024
-        assert math.isclose(math.sqrt(sum(x * x for x in vec_fallback_500)), 1.0, rel_tol=1e-5)
+        with pytest.raises(RuntimeError, match="BGE-M3 embedding API failed"):
+            await strategy.embed_query("Quy chế học tập 2026")
 
 
 @pytest.mark.asyncio
 async def test_embedding_vector_dimension_invariant_1024() -> None:
-    """Invariant: Every output vector from EmbeddingService must have length == 1024."""
-    for provider in ["mock", "bge-m3"]:
-        service = EmbeddingService(provider=provider)
+    """Invariant: Every output vector from EmbeddingService must have length == 1024.
 
-        q_vec = await service.embed_query("Test single query embedding")
-        assert len(q_vec) == 1024
+    The bge-m3 provider is backed by a mocked 1024-dim HTTP response since it no
+    longer silently falls back to the mock strategy.
+    """
+    valid_vec = [(i % 100) / 100.0 for i in range(1024)]
+    mock_resp = Response(200, json={"embedding": valid_vec})
+    with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_resp):
+        for provider in ["mock", "bge-m3"]:
+            service = EmbeddingService(provider=provider)
 
-        t_vecs = await service.embed_texts(["Nội dung 1", "Nội dung 2", "Nội dung 3"])
-        assert len(t_vecs) == 3
-        for v in t_vecs:
-            assert len(v) == 1024
+            q_vec = await service.embed_query("Test single query embedding")
+            assert len(q_vec) == 1024
+
+            t_vecs = await service.embed_texts(["Nội dung 1", "Nội dung 2", "Nội dung 3"])
+            assert len(t_vecs) == 3
+            for v in t_vecs:
+                assert len(v) == 1024
 
 
 # ============================================================================

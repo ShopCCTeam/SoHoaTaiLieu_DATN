@@ -30,21 +30,30 @@ class FailingStrategy(OcrEngineStrategy):
         raise RuntimeError("Simulated OCR engine failure")
 
 
-def test_ocr_engine_service_strategy_fallback() -> None:
-    """Test Strategy pattern fallback chain from primary -> fallback -> mock."""
+def test_ocr_engine_service_all_engines_fail_raises() -> None:
+    """When both primary and fallback fail, process_pdf raises (no silent mock)."""
     service = OcrEngineService(
         primary_engine=FailingStrategy(),
         fallback_engine=FailingStrategy(),
         confidence_threshold=0.80,
     )
-    pages = service.process_pdf(b"%PDF-1.4 sample content")
+    with pytest.raises(RuntimeError, match="All OCR engines failed"):
+        service.process_pdf(b"%PDF-1.4 sample content")
+
+
+def test_ocr_engine_service_allow_mock_opt_in() -> None:
+    """allow_mock=True lets tests explicitly opt in to the mock strategy."""
+    service = OcrEngineService(
+        primary_engine=FailingStrategy(),
+        fallback_engine=FailingStrategy(),
+        confidence_threshold=0.80,
+    )
+    pages = service.process_pdf(b"%PDF-1.4 sample content", allow_mock=True)
 
     assert len(pages) > 0
     assert len(pages[0].blocks) > 0
-    # Primary & fallback failed, mock strategy returned results
     first_block = pages[0].blocks[0]
     assert first_block.confidence >= 0.80
-    assert first_block.requires_review is False
     assert first_block.review_status == "APPROVED"
 
 
@@ -144,6 +153,14 @@ async def test_celery_process_document_task_integration(
         session.add_all([doc, ver, job])
         await session.commit()
 
+    # Stage the raw PDF in storage so the download step succeeds.
+    from app.services.storage import get_storage_service
+
+    await get_storage_service().upload_file(
+        b"%PDF-1.4 test document bytes",
+        "documents/raw/doc_ocr_task_01/ver_ocr_task_01.pdf",
+    )
+
     # Run async pipeline
     res = await _async_process_document("job_ocr_task_01", "ver_ocr_task_01")
     assert res["status"] == "SUCCEEDED"
@@ -205,6 +222,14 @@ async def test_celery_task_wrapper(staff_user: User, db_session_factory) -> None
         )
         session.add_all([doc, ver, job])
         await session.commit()
+
+    # Stage the raw PDF in storage so the download step succeeds.
+    from app.services.storage import get_storage_service
+
+    await get_storage_service().upload_file(
+        b"%PDF-1.4 test document bytes",
+        "documents/raw/doc_ocr_wrap_01/ver_ocr_wrap_01.pdf",
+    )
 
     # Call task
     result = process_document_task("job_ocr_wrap_01", "ver_ocr_wrap_01")

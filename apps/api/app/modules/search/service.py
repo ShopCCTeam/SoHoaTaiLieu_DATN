@@ -70,15 +70,12 @@ async def search_documents(
     # 1. Vector Search Candidates (Top 50)
     vector_candidates: list[tuple[DocumentChunk, Document, float]] = []
     if is_postgres:
-        pg_vec_stmt = base_stmt.order_by(
-            DocumentChunk.embedding.cosine_distance(query_vector)
-        ).limit(50)
+        cosine_dist = DocumentChunk.embedding.cosine_distance(query_vector).label("cosine_dist")
+        pg_vec_stmt = base_stmt.add_columns(cosine_dist).order_by(cosine_dist).limit(50)
         res_vec = await session.execute(pg_vec_stmt)
         rows_vec = res_vec.all()
-        for chunk, doc, _ver in rows_vec:
-            # Approx similarity = 1 - cosine_distance
-            dist = getattr(chunk, "cosine_distance", 0.0)
-            sim = 1.0 - float(dist) if dist else 0.8
+        for chunk, doc, _ver, dist in rows_vec:
+            sim = 1.0 - float(dist) if dist is not None else 0.0
             vector_candidates.append((chunk, doc, sim))
     else:
         # SQLite fallback: calculate similarity in python
@@ -98,21 +95,21 @@ async def search_documents(
     if is_postgres:
         from sqlalchemy import func
 
+        ft_rank = func.ts_rank(
+            DocumentChunk.fulltext_tsv,
+            func.plainto_tsquery("simple", query_clean),
+        ).label("ft_rank")
         pg_ft_stmt = (
             base_stmt.where(
                 DocumentChunk.fulltext_tsv.op("@@")(func.plainto_tsquery("simple", query_clean))
             )
-            .order_by(
-                func.ts_rank(
-                    DocumentChunk.fulltext_tsv,
-                    func.plainto_tsquery("simple", query_clean),
-                ).desc()
-            )
+            .add_columns(ft_rank)
+            .order_by(ft_rank.desc())
             .limit(50)
         )
         res_ft = await session.execute(pg_ft_stmt)
-        for chunk, doc, _ver in res_ft.all():
-            fulltext_candidates.append((chunk, doc, 1.0))
+        for chunk, doc, _ver, rank_val in res_ft.all():
+            fulltext_candidates.append((chunk, doc, float(rank_val) if rank_val else 0.0))
     else:
         # SQLite fallback: keyword match / ILIKE
         res_ft = await session.execute(base_stmt)
@@ -164,12 +161,13 @@ async def search_documents(
     # Sort candidates by combined RRF score descending
     fused_results.sort(key=lambda x: x[2], reverse=True)
 
-    total_count = len(fused_results)
+    # Apply top_k limit FIRST, then paginate within the limited set
+    top_k_results = fused_results[:top_k]
+    total_count = len(top_k_results)
 
-    # Slice for pagination & top_k
     start_idx = (page - 1) * size
-    end_idx = min(start_idx + size, top_k)
-    paged_items = fused_results[start_idx:end_idx] if start_idx < top_k else []
+    end_idx = start_idx + size
+    paged_items = top_k_results[start_idx:end_idx]
 
     items: list[SearchResultItem] = []
     for chunk, doc, score, v_score, f_score in paged_items:
