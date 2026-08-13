@@ -45,9 +45,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Real OCR engines. Heavy (paddleocr pulls paddlepaddle); NOT installed in CI
-# or by default. Install locally with `uv sync --extra ocr` to enable real OCR.
-# Runtime imports in app/services/ocr_engine.py degrade gracefully when absent.
+# Real OCR engines. Heavy (paddleocr pulls paddlepaddle); not installed by default.
+# CI job `ocr-native` installs this extra for a synthetic dependency/import gate;
+# it does not download models or claim PaddleOCR inference coverage. Runtime imports
+# in app/services/ocr_engine.py degrade gracefully when the extra is absent.
+
 ocr = [
     "paddlepaddle>=2.6.0,<3",
     "paddleocr>=2.8.0,<3",

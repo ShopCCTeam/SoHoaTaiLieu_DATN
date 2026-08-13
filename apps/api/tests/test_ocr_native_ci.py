@@ -16,6 +16,9 @@ def test_should_load_native_ocr_dependencies_for_synthetic_ci_smoke() -> None:
 
     image = pil.Image.new("RGB", (1, 1), "white")
 
+    languages = pytesseract.get_languages(config="")
+
     assert np.asarray(image).shape == (1, 1, 3)
     assert paddleocr.PaddleOCR is not None
     assert str(pytesseract.get_tesseract_version())
+    assert "vie" in languages

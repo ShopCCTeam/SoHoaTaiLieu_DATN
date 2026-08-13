@@ -266,6 +266,9 @@ jobs:
           uv lock --check
           uv sync --frozen --extra dev --extra ocr
 
+      - name: Type-check with native OCR dependencies
+        run: uv run mypy app
+
       - name: Run OCR-native synthetic smoke
         run: |
           set -o pipefail
@@ -278,3 +281,22 @@ jobs:
           uv run python "$GITHUB_WORKSPACE/scripts/check-pytest-skips.py" \
             pytest-ocr-native.log \
             --max-skips 0
+
+  # =========================================================
+  # Docker build smoke: lockfile and OCR runtime image
+  # =========================================================
+  docker-api-build:
+    name: Docker API Lockfile Build Gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API runtime image from frozen lockfile
+        run: |
+          docker build \
+            --file ../../infra/docker/Dockerfile.api \
+            --tag ctsv-api-lock-smoke:${{ github.sha }} \
+            .
