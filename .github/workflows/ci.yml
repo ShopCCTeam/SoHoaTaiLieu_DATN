@@ -114,6 +114,9 @@ jobs:
       - name: Install uv
         run: pip install uv==0.4.18
 
+      - name: Validate lockfile
+        run: uv lock --check
+
       - name: Install dependencies
         run: uv sync --frozen --extra dev
 
@@ -138,16 +141,21 @@ jobs:
           POSTGRES_PASSWORD: ctsv_test
           POSTGRES_TEST_DB: ctsv_test
 
-      # ---------- Coverage: global 80% ----------
+      # ---------- Coverage: global 80% + skip allowlist ----------
       - name: Run tests with coverage (global ≥80%)
         run: |
+          set -o pipefail
           uv run pytest \
             --cov=app \
             --cov-report=term-missing \
             --cov-report=xml \
             --cov-fail-under=80 \
             -v \
-            --tb=short
+            --tb=short 2>&1 | tee pytest-full.log
+          uv run python "$GITHUB_WORKSPACE/scripts/check-pytest-skips.py" \
+            pytest-full.log \
+            --allow-reason "Chuẩn hoá ảnh cần extra OCR (Pillow)." \
+            --max-skips 1
         env:
           CI: "true"
           POSTGRES_HOST: localhost
@@ -157,11 +165,12 @@ jobs:
           POSTGRES_PASSWORD: ctsv_test
           POSTGRES_TEST_DB: ctsv_test
 
-      # ---------- Coverage: scoped auth ≥75% ----------
+      # ---------- Coverage: scoped auth ≥75% + skip allowlist ----------
       # Ratchet: = mức đo được 2026-08-11 (75.38%). Nâng dần, không hạ.
       # Xem BACKLOG B1.
       - name: Run tests with coverage (auth ≥75%)
         run: |
+          set -o pipefail
           uv run pytest \
             --cov=app.modules.auth \
             --cov-report=term-missing \
@@ -169,7 +178,11 @@ jobs:
             --cov-fail-under=75 \
             --strict-markers \
             -v \
-            --tb=short
+            --tb=short 2>&1 | tee pytest-auth.log
+          uv run python "$GITHUB_WORKSPACE/scripts/check-pytest-skips.py" \
+            pytest-auth.log \
+            --allow-reason "Chuẩn hoá ảnh cần extra OCR (Pillow)." \
+            --max-skips 1
         env:
           CI: "true"
           POSTGRES_HOST: localhost
@@ -179,7 +192,7 @@ jobs:
           POSTGRES_PASSWORD: ctsv_test
           POSTGRES_TEST_DB: ctsv_test
 
-      # Note: skipped test gate đã tích hợp vào step coverage qua --strict-markers.
+      # Skip gate là allowlist/ceiling ở từng coverage step; --strict-markers chỉ kiểm marker hợp lệ.
       # Nếu pg_engine không kết nối được Postgres trong CI → pytest.fail (không skip).
 
       - name: Upload coverage to Codecov
@@ -189,9 +202,10 @@ jobs:
           files: apps/api/coverage.xml,apps/api/coverage-auth.xml
           fail_ci_if_error: false
 
-      - name: OpenAPI oasdiff (contract vs runtime)
-        # Informational only: contract has future endpoints not yet in FastAPI.
-        # Enable --fail-on-diff once all endpoints are implemented.
+      - name: OpenAPI oasdiff (contract vs runtime, informational)
+        # Contract có endpoint tương lai chưa được FastAPI triển khai. Chỉ bỏ
+        # continue-on-error khi runtime cover toàn bộ path/method/schema trong contract
+        # và có PR riêng chứng minh diff rỗng hoặc chỉ còn allowlist đã phê duyệt.
         continue-on-error: true
         run: |
           REPO_ROOT="$GITHUB_WORKSPACE"
@@ -210,9 +224,57 @@ jobs:
           # Diff contract vs runtime — mount qua /repo (ADR D15)
           docker run --rm \
             -v "$REPO_ROOT:/repo" \
-            tufin/oasdiff:latest \
+            tufin/oasdiff:1.28.0 \
             diff \
             /repo/docs/api/openapi.yaml \
             /repo/runtime_openapi.json \
             --format json \
             --exclude-elements description,summary,examples,title
+
+  # =========================================================
+  # OCR native dependencies and synthetic image smoke
+  # =========================================================
+  ocr-native:
+    name: OCR Native Dependency Gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install uv
+        run: pip install uv==0.4.18
+
+      - name: Install OCR system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            tesseract-ocr \
+            tesseract-ocr-vie \
+            libgl1 \
+            libglib2.0-0
+
+      - name: Validate lockfile and install native OCR dependencies
+        run: |
+          uv lock --check
+          uv sync --frozen --extra dev --extra ocr
+
+      - name: Run OCR-native synthetic smoke
+        run: |
+          set -o pipefail
+          uv run pytest \
+            tests/test_ocr_native_ci.py \
+            tests/test_ocr_image.py \
+            tests/test_ocr_preprocessing.py \
+            -o addopts="--strict-markers --strict-config -ra --tb=short" \
+            -v -ra --tb=short 2>&1 | tee pytest-ocr-native.log
+          uv run python "$GITHUB_WORKSPACE/scripts/check-pytest-skips.py" \
+            pytest-ocr-native.log \
+            --max-skips 0

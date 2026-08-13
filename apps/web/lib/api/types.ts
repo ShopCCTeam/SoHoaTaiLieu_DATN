@@ -159,7 +159,7 @@ export interface ModelVersion {
   name: string;
   isActive: boolean;
   createdAt: string;
-  accuracy: number;
+  accuracy?: number;
   size: string;
   provider: string;
 }

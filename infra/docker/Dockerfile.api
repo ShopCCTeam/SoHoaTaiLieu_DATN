@@ -10,7 +10,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 WORKDIR /app
 
 # Copy package metadata trước để cache layer. `README.md` được khai báo trong pyproject.
-COPY pyproject.toml uv.lock* README.md ./
+COPY pyproject.toml uv.lock README.md ./
 
 # Install Tesseract fallback and OpenCV runtime libraries required by PaddleOCR.
 RUN apt-get update \
@@ -22,7 +22,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install runtime dependencies, including the optional real OCR engines.
-RUN uv sync --frozen --no-dev --extra ocr || uv sync --no-dev --extra ocr
+RUN uv lock --check && uv sync --frozen --no-dev --extra ocr
 
 # Copy source và migration assets (production image).
 # Trong docker-compose dev, volume mount sẽ override source.

@@ -16,7 +16,7 @@
 SoHoaTaiLieu_DATN/
 ├── apps/
 │   ├── web/                    ← Next.js 14 Frontend (F0-F6 + contract sync xong)
-│   └── api/                    ← FastAPI Backend (Phase 0 scaffold)
+│   └── api/                    ← FastAPI runtime (auth, documents, OCR, RAG, worker)
 ├── packages/
 │   └── contracts/              ← OpenAPI → TypeScript types (auto-generated)
 ├── docs/                       ← tài liệu (PROGRESS.md, walkthrough, ADRs)
@@ -44,9 +44,11 @@ SoHoaTaiLieu_DATN/
 - ✅ Frontend F0–F6: có live mode qua API client và mock mode riêng cho UI/demo. Mock route không phải evidence backend runtime.
 - ✅ Backend: Auth refresh rotation, document upload/version, RBAC scope, OCR review, search hybrid và chat grounded đã có implementation trong `apps/api`.
 - ✅ Runtime Compose: PostgreSQL+pgvector, Redis, MinIO, Ollama, API và Celery worker; worker thật nằm tại `apps/api/app/worker/`.
-- ✅ OCR: PDF render 300 DPI, PaddleOCR primary, Tesseract fallback, preprocessing opt-in và ảnh review private qua API RBAC.
-- ✅ RAG: BGE-M3 1024 chiều qua Ollama, guardrail cosine 0.6, LangChain chain và citation từ evidence đã duyệt.
-- ⚠️ OCR training offline trong `services/ocr-training/` vẫn là scaffold; chưa có evidence benchmark CER/WER trên corpus được phê duyệt.
+- ✅ B6 synthetic runtime: PostgreSQL test database, queue, Redis namespace và MinIO bucket cô lập; integration fail-closed, Alembic round-trip và HTTP E2E synthetic đã có evidence tái lập qua `scripts/e2e-synthetic-document.py`.
+- ✅ OCR synthetic: PDF render 300 DPI, PaddleOCR primary, Tesseract fallback, preprocessing opt-in và ảnh review private qua API RBAC. Đây không phải benchmark hoặc chứng cứ OCR trên tài liệu thật.
+- ✅ RAG synthetic: BGE-M3 1024 chiều qua Ollama, guardrail cosine 0.6, LangChain chain, citation và no-answer. Đây không thay thế benchmark Recall@K/MRR hoặc citation accuracy.
+- ⚠️ OCR training offline trong `services/ocr-training/` vẫn là scaffold; chưa có corpus 200 PDF được phê duyệt, baseline/fine-tune hoặc benchmark CER/WER.
+- ⚠️ E2E frontend live bằng Playwright chưa có evidence; mock Next.js chỉ phục vụ UI/demo, không là bằng chứng backend runtime.
 - 📖 Đọc trạng thái/evidence chi tiết ở `docs/PROGRESS.md`; đọc `MANUS.md` trước mọi thay đổi.
 
 ## Tech stack cố định (KHÔNG thay đổi khi chưa có ADR mới)

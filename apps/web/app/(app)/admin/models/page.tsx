@@ -2,12 +2,14 @@
 
 import React from "react";
 import { useAdminModels } from "@/lib/api/queries";
+import { isApiMockMode } from "@/lib/api/client";
 import { Cpu, CheckCircle2, RotateCcw, Lock } from "lucide-react";
 import { useAuthStore } from "@/lib/auth/session";
 
 export default function AdminModelsPage() {
   const { user } = useAuthStore();
   const { data: models = [], isLoading } = useAdminModels();
+  const isMockMode = isApiMockMode();
 
   if (user?.role !== "admin") {
     return (
@@ -37,6 +39,11 @@ export default function AdminModelsPage() {
           <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
             Quản lý AI Models & Training Runs
           </h1>
+          {isMockMode ? (
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300" data-testid="mock-data-notice">
+              DEMO / DỮ LIỆU MÔ PHỎNG — Không phải kết quả huấn luyện, accuracy hoặc benchmark đã kiểm chứng.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -70,7 +77,9 @@ export default function AdminModelsPage() {
               <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-primary-100 dark:border-slate-800">
                 <div>
                   <span className="text-muted-foreground">Độ chính xác RAG:</span>
-                  <div className="font-bold text-slate-900 dark:text-white font-mono">{mod.accuracyScore}%</div>
+                  <div className="font-bold text-slate-900 dark:text-white font-mono">
+                    {isMockMode ? "Chưa có số liệu kiểm chứng" : `${mod.accuracyScore}%`}
+                  </div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Kích thước Vector:</span>

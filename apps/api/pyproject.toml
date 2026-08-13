@@ -136,10 +136,13 @@ addopts = [
     "--strict-config",
     "-ra",
     "--tb=short",
+    "-m",
+    "not ocr_native",
 ]
 markers = [
     "integration: marks tests as integration (deselect with '-m \"not integration\"')",
     "unit: marks tests as unit (default)",
+    "ocr_native: requires the optional native OCR dependencies and system Tesseract binary",
 ]
 
 # -------- Coverage --------

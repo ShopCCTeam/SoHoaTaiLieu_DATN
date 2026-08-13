@@ -251,23 +251,20 @@ export const MOCK_OCR_BLOCKS: Record<string, OCRBlock[]> = {
 export const MOCK_TRAINING_RUNS: TrainingRun[] = [
   {
     id: "run_01",
-    name: "PaddleOCR-vi fine-tune 2026-02",
+    name: "DEMO — Training run mô phỏng (không dùng corpus)",
     status: "completed",
     startedAt: "2026-02-10T08:00:00Z",
     finishedAt: "2026-02-11T15:00:00Z",
-    docsIndexed: 1850,
-    loss: 0.04,
-    accuracy: 96.4,
+    docsIndexed: 0,
   },
 ];
 export const MOCK_MODEL_VERSIONS: ModelVersion[] = [
   {
     id: "mod_01",
-    name: "BGE-M3 Multilingual Vector Embeddings",
+    name: "DEMO — BGE-M3 Multilingual Vector Embeddings",
     version: "v2.1.0",
     isActive: true,
     createdAt: "2026-02-01T10:00:00Z",
-    accuracy: 96.4,
     size: "1.2GB",
     provider: "BAAI",
   },
