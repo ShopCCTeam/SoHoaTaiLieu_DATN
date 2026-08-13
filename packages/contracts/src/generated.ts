@@ -228,6 +228,8 @@ export interface paths {
                     status?: components["schemas"]["DocumentStatus"];
                     type?: string;
                     q?: string;
+                    keyword?: string;
+                    tags?: string[];
                     page?: number;
                     limit?: number;
                 };
@@ -547,6 +549,8 @@ export interface paths {
                     q: string;
                     scope?: components["schemas"]["DocumentScope"];
                     type?: string;
+                    keyword?: string;
+                    tags?: string[];
                     alpha?: number;
                     top_k?: number;
                     page?: number;
@@ -804,6 +808,10 @@ export interface components {
             query: string;
             scope?: components["schemas"]["DocumentScope"];
             doc_type?: string;
+            /** @description Lọc bổ sung không phân biệt hoa thường trên metadata title, code_number, issuing_body hoặc tag; không thay thế query RAG chính. */
+            keyword?: string;
+            /** @description Chỉ giữ tài liệu có đầy đủ các tag được yêu cầu, so khớp exact không phân biệt hoa thường. */
+            tags?: string[];
             /** @default 0.5 */
             alpha: number;
             /** @default 10 */

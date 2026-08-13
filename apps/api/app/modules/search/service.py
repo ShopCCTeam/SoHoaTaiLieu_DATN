@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_version import DocumentVersion
+from app.modules.documents.filters import build_document_metadata_conditions
 from app.modules.search.schemas import SearchResponse, SearchResultItem
 from app.services.embedding import EmbeddingService
 
@@ -32,6 +33,8 @@ async def search_documents(
     allowed_scopes: list[str],
     requested_scope: str | None = None,
     doc_type: str | None = None,
+    keyword: str | None = None,
+    tags: list[str] | None = None,
     alpha: float = 0.5,
     top_k: int = 10,
     page: int = 1,
@@ -66,6 +69,14 @@ async def search_documents(
 
     if doc_type:
         base_stmt = base_stmt.where(Document.type == doc_type)
+
+    metadata_conditions = build_document_metadata_conditions(
+        keyword=keyword,
+        tags=tags,
+        is_postgres=is_postgres,
+    )
+    if metadata_conditions:
+        base_stmt = base_stmt.where(*metadata_conditions)
 
     # 1. Vector Search Candidates (Top 50)
     vector_candidates: list[tuple[DocumentChunk, Document, float]] = []

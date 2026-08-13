@@ -31,7 +31,9 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const type = searchParams.get("type");
-  const query = searchParams.get("query");
+  const q = searchParams.get("q");
+  const keyword = searchParams.get("keyword");
+  const tags = searchParams.getAll("tags").map((tag) => tag.trim().toLowerCase()).filter(Boolean);
 
   if (status && status !== "ALL") {
     docs = docs.filter((d) => d.status === status);
@@ -39,15 +41,27 @@ export async function GET(request: NextRequest) {
   if (type && type !== "ALL") {
     docs = docs.filter((d) => d.type === type);
   }
-  if (query) {
-    const q = query.toLowerCase();
+  if (q) {
+    const query = q.toLowerCase();
+    docs = docs.filter(
+      (d) => d.title.toLowerCase().includes(query) || d.codeNumber?.toLowerCase().includes(query),
+    );
+  }
+  if (keyword) {
+    const metadataKeyword = keyword.toLowerCase();
     docs = docs.filter(
       (d) =>
-        d.title.toLowerCase().includes(q) ||
-        d.codeNumber?.toLowerCase().includes(q) ||
-        d.issuingBody?.toLowerCase().includes(q) ||
-        d.tags.some((t) => t.toLowerCase().includes(q)),
+        d.title.toLowerCase().includes(metadataKeyword) ||
+        d.codeNumber?.toLowerCase().includes(metadataKeyword) ||
+        d.issuingBody?.toLowerCase().includes(metadataKeyword) ||
+        d.tags.some((tag) => tag.toLowerCase().includes(metadataKeyword)),
     );
+  }
+  if (tags.length > 0) {
+    docs = docs.filter((d) => {
+      const documentTags = new Set(d.tags.map((tag) => tag.toLowerCase()));
+      return tags.every((tag) => documentTags.has(tag));
+    });
   }
 
   // Return shape phải khớp OpenAPI (snake_case envelope).

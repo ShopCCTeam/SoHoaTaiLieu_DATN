@@ -28,6 +28,8 @@ async def search_documents_get(
         None, description="Lọc theo phạm vi (PUBLIC, STUDENT_AFFAIRS, INTERNAL)"
     ),
     type: str | None = Query(None, description="Lọc theo loại tài liệu"),
+    keyword: str | None = Query(None, description="Lọc metadata bổ sung"),
+    tags: list[str] | None = Query(None, description="Các tag exact-match bắt buộc"),
     alpha: float = Query(
         0.5, ge=0.0, le=1.0, description="Trọng số RRF (0.0: fulltext -> 1.0: vector)"
     ),
@@ -53,6 +55,8 @@ async def search_documents_get(
         allowed_scopes=allowed_scopes,
         requested_scope=scope.value if scope else None,
         doc_type=type,
+        keyword=keyword,
+        tags=tags,
         alpha=alpha,
         top_k=top_k,
         page=page,
@@ -84,6 +88,8 @@ async def search_documents_post(
         allowed_scopes=allowed_scopes,
         requested_scope=body.scope.value if body.scope else None,
         doc_type=body.doc_type,
+        keyword=body.keyword,
+        tags=body.tags,
         alpha=body.alpha,
         top_k=body.top_k,
         page=body.page,

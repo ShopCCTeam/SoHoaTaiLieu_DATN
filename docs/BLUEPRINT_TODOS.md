@@ -49,14 +49,14 @@ CI GitHub được ghi tại thời điểm snapshot là evidence automation l�
 | 1 | **Chưa làm** | Không thấy báo cáo khảo sát hiện trạng CTSV. |
 | 2 | **Một phần** | Có RBAC matrix/lifecycle; thiếu tài liệu đặc tả yêu cầu và sơ đồ use case cho admin, cán bộ, sinh viên. |
 | 3 | **Một phần** | ADR-0001 chốt backend/pgvector; thiếu báo cáo so sánh PaddleOCR–Tesseract và BGE-M3 với phương án khác. |
-| 4 | **Bị chặn một phần** | Chưa có 200 PDF; metadata field/tags có trong code nhưng thiếu quy ước metadata/từ khoá, kiểm kê và checksum corpus. |
+| 4 | **Một phần** | Metadata/tag filter có contract, backend và UI T07; vẫn thiếu corpus được phê duyệt, kiểm kê/checksum và benchmark OCR. |
 | 5 | **Một phần** | Có migration/schema và màn hình FE; thiếu ERD, sơ đồ kiến trúc báo cáo, tài liệu thiết kế UI. |
 | 6–7 | **Đã kiểm chứng ở mức backend/CI** | Upload PDF, version, RBAC, MinIO, worker, review API đã có; vẫn cần E2E frontend live cho demo. |
 | 8–9 | **Đã kiểm chứng synthetic** | 300 DPI, OCR row/block, JPG/PNG, preprocessing opt-in, preview private và review ảnh thật đều đã có evidence; còn thiếu PDF tiếng Việt thật/CER-WER và Playwright live. |
 | 10 | **Bị chặn** | Chưa có corpus niêm phong và baseline; chưa có CER/WER hay độ chính xác trường quan trọng. |
 | 11 | **Đã kiểm chứng synthetic** | Chunking/index/hybrid và BGE-M3 vector 1024 chiều thật đã có evidence; chưa có corpus/benchmark nghiệp vụ. |
 | 12 | **Đã kiểm chứng synthetic** | LangChain Retriever → Prompt → Ollama → Parser, trace an toàn, citation/no-answer đã có runtime evidence; chưa có benchmark RAG. |
-| 13 | **Đã kiểm chứng synthetic** | Hybrid RRF, citation, no-answer, RBAC và guardrail cosine 0.6 đã có; keyword/tag filter độc lập vẫn là T07. |
+| 13 | **Đã kiểm chứng synthetic** | Hybrid RRF, citation, no-answer, RBAC, guardrail cosine 0.6 và filter keyword/tag trước candidate retrieval có evidence regression; benchmark RAG nghiệp vụ còn mở. |
 | 14 | **Một phần** | CI/migration/coverage có; thiếu biên bản test chức năng–bảo mật–hiệu năng, đo latency và kịch bản ổn định. |
 | 15 | **Chưa làm** | Chưa có golden questions, Recall@k, MRR, citation accuracy, so sánh retriever/chunk size, hướng dẫn cài đặt/sử dụng. |
 | 16 | **Chưa làm** | Chưa có báo cáo tổng kết, slide, demo script và ba lần diễn tập máy sạch. |
@@ -65,13 +65,13 @@ CI GitHub được ghi tại thời điểm snapshot là evidence automation l�
 
 | Mã | Đánh giá hiện tại | Việc cần xử lý |
 |---|---|---|
-| K1 | **Còn mở** | `Dockerfile.api` vẫn dùng `uv sync --frozen ... || uv sync ...`; phải bỏ fallback để lockfile sai làm build fail. |
+| K1 | **Đã siết source, chờ CI** | Dockerfile bắt buộc lockfile và `uv sync --frozen`; Docker smoke build đã khai báo CI nhưng chưa có evidence CI remote vì không commit/push. |
 | K2 | **Đã đóng ở mức synthetic** | Compose dùng Ollama nội bộ, có health/runtime evidence cho BGE-M3 và Qwen; không dùng `localhost` trong API/worker container. Giới hạn RAM runtime vẫn cần được theo dõi. |
 | K3 | **Đã đóng ở mức synthetic** | `image_key` được gán/upload, API ảnh private kiểm RBAC và review pane live đọc ảnh thật. T11 còn thiếu evidence Playwright frontend live. |
-| K4 | **Còn mở** | `--strict-markers` không phải skip gate. CI cần đếm skip theo allowlist/ceiling và fail khi vượt ngưỡng. |
+| K4 | **Đã siết source, chờ CI** | Có script skip allowlist/ceiling và CI gate; execution CI remote chưa có evidence nên không đóng hoàn toàn. |
 | K5 | **Đã đóng ở source** | `numpy` đã được khai báo trực tiếp trong extra OCR và kiểm tra static hiện có. T10 chỉ còn nhiệm vụ dependency/contract CI tái lập. |
-| K6 | **Còn mở có điều kiện** | oasdiff dùng image `latest` và `continue-on-error: true`; cần pin version ngay, còn fail-on-diff chỉ bật sau khi runtime cover contract. |
-| K7 | **Còn mở** | CI cài `--extra dev`, không cài `--extra ocr`; nhánh Paddle/Tesseract native không được kiểm chứng CI. |
+| K6 | **Đã siết source, chờ CI** | oasdiff đã pin; contract diff vẫn informational cho đến khi runtime cover contract, và CI remote chưa được chạy. |
+| K7 | **Đã siết source, chờ CI** | Có OCR-native CI job với extra OCR/Tesseract `vie`; local Windows bị chặn bởi build `stringzilla`, CI remote chưa có evidence. |
 | K8 | **Giảm rủi ro nhưng chưa đóng** | Có CI pass và transcript local 248 passed/83%, nhưng Definition of Done yêu cầu một thành viên khác tái chạy trên máy sạch. |
 
 ## 6. TODO ưu tiên — Làn 1, không chờ corpus
@@ -108,9 +108,10 @@ Các TODO dưới đây được sắp theo phụ thuộc. Không tự mở rộ
 
 ### P1 — tính năng đề cương và độ tin cậy CI
 
-- [ ] **T07 — Bộ lọc từ khoá/tag xuyên suốt documents và hybrid search** — *Khải; S2*.
-  - Giữ `q` hiện có cho title/code; thiết kế rõ filter keyword/tag độc lập trong OpenAPI, thêm filter vào SQL vector và full-text trước candidate retrieval.
-  - **XONG khi:** gọi list và search cùng filter cho đúng tập con, không làm rò document ngoài scope; test RBAC + API output nguyên văn.
+- [x] **T07 — Bộ lọc từ khoá/tag xuyên suốt documents và hybrid search** — *Hoàn tất ở mức source/test local; CI PostgreSQL remote còn chờ.*
+  - Contract-first: `keyword` metadata và repeated `tags` exact-match/AND được thêm cho list, GET search và POST search; TypeScript contract được tái sinh.
+  - Backend áp filter `deleted_at`/scope trước, metadata/tag trước vector và full-text candidate retrieval; SQLite regression dùng `json_each`, PostgreSQL dùng `json_array_elements_text`.
+  - **Evidence:** TDD RED rồi GREEN với document/search regression 11 passed; test student không lấy được document INTERNAL qua metadata filter. Frontend mock/live adapter và UI filter được typecheck/test; runtime PostgreSQL remote vẫn chờ B/CI.
 
 - [ ] **T08 — Đóng K1: lockfile fail-closed khi Docker build** — *Khải*.
   - Bỏ nhánh `|| uv sync --no-dev --extra ocr`; thêm CI step `uv lock --check` và smoke Docker build chỉ dùng `--frozen`.

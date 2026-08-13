@@ -78,6 +78,25 @@ async def test_list_documents_pagination_and_filters(
     assert resp_q.status_code == 200
     assert resp_q.json()["total"] == 1
 
+    # Independent metadata keyword filter
+    resp_keyword = await api_client.get("/api/v1/documents?keyword=dao_tao", headers=headers)
+    assert resp_keyword.status_code == 200
+    assert resp_keyword.json()["total"] == 1
+    assert resp_keyword.json()["data"][0]["id"] == "doc_test_01"
+
+    # All requested exact tags must match one document.
+    resp_tags = await api_client.get("/api/v1/documents?tags=dao_tao&tags=quy_che", headers=headers)
+    assert resp_tags.status_code == 200
+    assert resp_tags.json()["total"] == 1
+    assert resp_tags.json()["data"][0]["id"] == "doc_test_01"
+
+    # A requested tag absent from the document must exclude it.
+    resp_missing_tag = await api_client.get(
+        "/api/v1/documents?tags=dao_tao&tags=hoc_bong", headers=headers
+    )
+    assert resp_missing_tag.status_code == 200
+    assert resp_missing_tag.json()["total"] == 0
+
 
 @pytest.mark.asyncio
 async def test_get_document_detail_success_and_not_found(

@@ -19,6 +19,7 @@ from app.models.ocr_block import OCRBlock
 from app.models.ocr_page import OCRPage
 from app.models.user import User
 from app.modules.documents.dependencies import get_allowed_scopes_for_user
+from app.modules.documents.filters import build_document_metadata_conditions
 from app.modules.documents.schemas import (
     BatchReviewActionItem,
     DocumentUpdateSchema,
@@ -37,6 +38,8 @@ async def list_documents(
     status: str | None = None,
     doc_type: str | None = None,
     q: str | None = None,
+    keyword: str | None = None,
+    tags: list[str] | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> tuple[Sequence[Document], int]:
@@ -57,6 +60,16 @@ async def list_documents(
         stmt = stmt.where(
             (Document.title.ilike(search_pattern)) | (Document.code_number.ilike(search_pattern))
         )
+
+    bind = session.bind
+    is_postgres = bind is not None and bind.dialect.name == "postgresql"
+    metadata_conditions = build_document_metadata_conditions(
+        keyword=keyword,
+        tags=tags,
+        is_postgres=is_postgres,
+    )
+    if metadata_conditions:
+        stmt = stmt.where(*metadata_conditions)
 
     # Count total
     count_stmt = select(func.count()).select_from(stmt.subquery())

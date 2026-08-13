@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   useReactTable,
@@ -34,6 +34,10 @@ export const DocumentTable: React.FC<DocumentTableProps> = ({
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
+
+  useEffect(() => {
+    setData(initialDocuments);
+  }, [initialDocuments]);
 
   const filteredData = useMemo(() => {
     return data.filter((doc) => {

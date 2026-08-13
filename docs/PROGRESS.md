@@ -577,3 +577,53 @@ Stage tiền xử lý opt-in đã thêm trước hai OCR engine: deskew theo for
 - Không có corpus OCR được phê duyệt: chưa benchmark CER/WER, chưa tuyên bố OCR fine-tune/training hoàn tất và không đọc PDF/OCR thật.
 - E2E dùng PDF synthetic một trang; chưa thay thế bằng benchmark tải lớn, nhiều trang hoặc PDF scan tiếng Việt được phê duyệt.
 - Không commit, push, thay đổi OpenAPI, migration schema, Docker Compose hay dữ liệu/model artifact trong B6.
+
+
+---
+
+## 2026-08-13 — Kế hoạch hoàn thiện không cần corpus hoặc toolchain Windows
+
+**Bối cảnh và giới hạn**:
+
+- T08–T10 đã có phần code/config nhưng chưa đóng: Windows local không build được `stringzilla==5.1.2` cho extra OCR nếu không cài Visual C++ Build Tools; chưa có quyền commit/push để chạy Docker/OCR-native CI thực tế. Không đổi lockfile, không cài toolchain hệ thống và không coi dependency/import smoke là PaddleOCR inference.
+- T11 Playwright E2E frontend live chưa bắt đầu vì B chưa đạt gate. Không dùng Next mock để thay thế evidence live.
+- Không đọc/ghi `.env`, PDF thật, `data/`, model checkpoint, OCR thật hoặc training artifact.
+
+**Kế hoạch đợt này**:
+
+1. Thực hiện T07 theo contract-first: thêm filter metadata/tag cho danh sách và hybrid search, bảo toàn `scope`/`deleted_at` trước candidate retrieval, đồng bộ contract–backend–frontend và regression RBAC.
+2. Chuẩn bị mẫu manifest, quy ước annotation, protocol baseline/evaluation OCR và bộ câu hỏi vàng RAG ở dạng không chứa dữ liệu thật; không tuyên bố baseline, fine-tune, CER/WER hay benchmark đã hoàn thành.
+3. Bổ sung runbook/tài liệu kỹ thuật có thể hoàn thành mà không cần corpus hoặc môi trường live; ghi rõ evidence và phần chưa kiểm chứng.
+4. Chạy quality gate phù hợp, rà soát diff và báo cáo; không commit, push, migration, Docker Compose, model pull hoặc chuyển sang T11.
+
+**Tiêu chí trung thực**: chỉ đánh dấu hoàn tất cho source/test/documentation thực sự có output kiểm chứng; B và C tiếp tục được ghi là blocked/chưa bắt đầu theo evidence hiện có.
+
+
+### T07 — Filter metadata/tag xuyên suốt documents và hybrid search
+
+- OpenAPI được cập nhật trước implementation: `GET /documents`, `GET /search` và `POST /search` nhận `keyword` cùng `tags`; `tags` là exact-match không phân biệt hoa thường và **mọi tag yêu cầu phải cùng có**. `keyword` là lọc metadata bổ sung trên `title`, `code_number`, `issuing_body` hoặc tag.
+- Backend giữ `deleted_at` và allowed `scope` ở `WHERE` đầu tiên. Sau đó áp metadata conditions chung trước cả vector candidate và full-text candidate; PostgreSQL dùng `json_array_elements_text`, SQLite test dùng `json_each`. Không có filter sau retrieval, không hạ guardrail RAG.
+- Frontend tái sinh `@ctsv/contracts`, gửi repeated `tags` đúng contract, có controls keyword/tag tại documents và search. `useSearchRAG` tách adapter DEMO mock khỏi mapper `SearchResponse` FastAPI live; UI card chỉ hiển thị field thực có trong contract live, không giả metadata Document thiếu trong response.
+- Mock routes vẫn là **DEMO ONLY**, nay mô phỏng semantics T07 và giới hạn scope student để không trở thành bằng chứng security/runtime.
+
+| Gate | Kết quả |
+|---|---|
+| `pnpm openapi:lint` | ✅ PASS |
+| `pnpm openapi:generate` | ✅ Hoàn tất, contract TypeScript được tái sinh |
+| TDD regression T07 | ✅ RED: 2 test fail trước implementation; GREEN: document/search regression **11 passed** |
+| Backend static | ✅ Ruff check, Ruff format check, mypy (**66 source files**) |
+| Frontend typecheck | ✅ PASS |
+| Frontend unit | ✅ **32 passed** |
+| Frontend lint | ✅ Không lỗi mới; còn 2 warning có sẵn tại `chat-thread.tsx` và `<img>` legacy |
+
+**Chưa kiểm chứng**: PostgreSQL runtime của JSON tag filter, OCR-native CI và Docker smoke CI vẫn bị giới hạn bởi evidence B/T08–T10; Playwright live T11 chưa bắt đầu.
+
+
+### Chuẩn bị corpus OCR và đánh giá RAG không dùng dữ liệu thật
+
+- Thêm `services/ocr-training/manifest.schema.json` và `manifest.example.yaml` ở dạng metadata-only. Schema khóa `render_dpi=300`, split `document-level`, approval reference/retention policy và không có field cho PDF, image, OCR text, PII, checkpoint hoặc secret. Example dùng toàn bộ placeholder/`NOT_COMPUTED`.
+- Thêm `docs/evaluation/ocr-evaluation-protocol.md`, `MODEL_CARD.template.md` và runbook offline. Các artefact bắt buộc baseline/fine-tune so sánh trên cùng test set đóng băng, báo CER/WER/latency/review rate và ghi `NOT_MEASURED` nếu chưa chạy.
+- Thêm `docs/evaluation/rag-golden-set-template.yaml` với ba case placeholder: answerable, insufficient-evidence và RBAC negative. Template giữ threshold cosine `0.6`, embedding dimension `1024` và required citation fields; không có query/document/citation thật.
+- Đồng bộ README OCR training, evaluation và runbooks để mô tả đúng pipeline vẫn là scaffold; không khẳng định có corpus, baseline, fine-tune, checkpoint, CER/WER hay RAG benchmark.
+
+**Chưa kiểm chứng**: schema/template chỉ được kiểm tra bằng review cấu trúc và không được chạy trên corpus. Validation corpus, baseline, fine-tune, golden-set score và model card thật tiếp tục chờ data approval/môi trường offline được xác nhận.

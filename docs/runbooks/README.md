@@ -10,6 +10,7 @@
 - `04-reindex.md` — cách reindex vector khi đổi embedding model.
 - `05-rollback-model.md` — cách rollback model OCR về version trước.
 - `06-rate-limit.md` — điều chỉnh rate limit khi traffic tăng.
+- `07-ocr-evaluation-offline.md` — điều kiện và quy trình baseline/fine-tune/evaluation OCR ngoài production.
 
 ## Cấu trúc mỗi runbook
 

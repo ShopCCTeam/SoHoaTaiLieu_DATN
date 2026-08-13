@@ -1,6 +1,6 @@
 # services/ocr-training — OCR Training Pipeline
 
-> **Trạng thái**: scaffold. Sẽ code ở Phase 3 (training pipeline).
+> **Trạng thái**: training pipeline vẫn là scaffold và **chưa có corpus/model fine-tune**. Repository hiện chỉ có artefact governance/template để chuẩn bị evaluation offline, không có evidence baseline, CER/WER hoặc training run.
 
 ## Mục đích
 
@@ -27,6 +27,14 @@ services/ocr-training/
 - Metrics bắt buộc: CER, WER, processing_time_ms/page, accuracy.
 - Tesseract **chỉ** là fallback runtime, không dùng để đánh giá.
 - Mỗi model version lưu trong PostgreSQL + checkpoint ở MinIO.
+
+## Artefact governance đã có
+
+- `manifest.schema.json`: schema metadata-only cho corpus đã được phê duyệt; không chứa PDF, image, OCR text, PII hoặc checkpoint.
+- `manifest.example.yaml`: placeholder, không phải manifest/evidence dataset thật.
+- `MODEL_CARD.template.md`: template bắt buộc ghi `NOT_MEASURED` khi chưa có benchmark.
+- `docs/evaluation/ocr-evaluation-protocol.md`: protocol baseline/fine-tune/evaluation document-level, 300 DPI.
+- `docs/runbooks/07-ocr-evaluation-offline.md`: runbook chỉ kích hoạt trong môi trường offline được phê duyệt.
 
 ## Commands (sẽ có)
 

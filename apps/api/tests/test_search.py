@@ -31,6 +31,8 @@ async def seeded_search_data(db_session_factory, admin_user: User) -> dict[str, 
             status="APPROVED",
             scope="PUBLIC",
             code_number="QC-2026",
+            issuing_body="Phòng Đào tạo",
+            tags=["dao_tao", "quy_che"],
             author_id=admin_user.id,
         )
         ver1 = DocumentVersion(
@@ -52,6 +54,8 @@ async def seeded_search_data(db_session_factory, admin_user: User) -> dict[str, 
             status="APPROVED",
             scope="INTERNAL",
             code_number="TB-2026",
+            issuing_body="Phòng Công tác Sinh viên",
+            tags=["hoc_bong", "noi_bo"],
             author_id=admin_user.id,
         )
         ver2 = DocumentVersion(
@@ -185,6 +189,43 @@ async def test_search_filter_by_type(
     items = resp.json()["data"]["items"]
     for item in items:
         assert item["document_type"] == "QUY_CHE"
+
+
+@pytest.mark.asyncio
+async def test_search_should_filter_candidates_by_keyword_and_all_tags(
+    api_client: AsyncClient,
+    admin_user: User,
+    student_user: User,
+    seeded_search_data: dict[str, str],
+) -> None:
+    admin_headers = auth_headers_for(admin_user)
+
+    # The additional tag constrains candidates before query ranking.
+    resp_tags = await api_client.get(
+        "/api/v1/search?q=đào+tạo&tags=hoc_bong", headers=admin_headers
+    )
+    assert resp_tags.status_code == 200
+    tag_items = resp_tags.json()["data"]["items"]
+    assert [item["document_id"] for item in tag_items] == [seeded_search_data["doc2_id"]]
+
+    # POST applies independent metadata keyword before vector and full-text candidates.
+    resp_keyword = await api_client.post(
+        "/api/v1/search",
+        json={"query": "học bổng", "keyword": "Phòng Đào tạo"},
+        headers=admin_headers,
+    )
+    assert resp_keyword.status_code == 200
+    keyword_items = resp_keyword.json()["data"]["items"]
+    assert [item["document_id"] for item in keyword_items] == [seeded_search_data["doc1_id"]]
+
+    # A student cannot use a metadata filter to retrieve an INTERNAL document.
+    student_headers = auth_headers_for(student_user)
+    resp_student = await api_client.get(
+        "/api/v1/search?q=học+bổng&keyword=Công+tác+Sinh+viên&tags=hoc_bong",
+        headers=student_headers,
+    )
+    assert resp_student.status_code == 200
+    assert resp_student.json()["data"]["total"] == 0
 
 
 @pytest.mark.asyncio

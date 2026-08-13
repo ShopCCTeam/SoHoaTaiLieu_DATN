@@ -1,0 +1,23 @@
+# TEMPLATE ONLY — không phải corpus, không phải evidence baseline/fine-tune.
+# File manifest thật phải lưu ngoài repository nếu có định danh hoặc liên kết tới tài liệu nội bộ.
+schema_version: "1.0"
+dataset_id: "replace-with-approved-dataset-id"
+approval:
+  reference: "replace-with-internal-approval-reference"
+  approved_at: "YYYY-MM-DD"
+  retention_policy: "replace-with-approved-retention-policy"
+render_dpi: 300
+split_strategy: "document-level"
+splits:
+  train:
+    document_count: 0
+    content_checksum_status: "NOT_COMPUTED"
+  validation:
+    document_count: 0
+    content_checksum_status: "NOT_COMPUTED"
+  test:
+    document_count: 0
+    content_checksum_status: "NOT_COMPUTED"
+baseline:
+  model_id: "replace-with-pretrained-paddleocr-version"
+  evaluation_status: "NOT_RUN"

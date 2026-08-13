@@ -1,19 +1,31 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSearchRAG } from "@/lib/api/queries";
 import { SearchResultCard } from "@/components/search/result-card";
-import { Search, Sparkles, SlidersHorizontal, Inbox } from "lucide-react";
+import { Inbox, Search, SlidersHorizontal, Sparkles } from "lucide-react";
+
+function parseTags(value: string): string[] {
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
 
 export default function SearchRAGPage() {
   const searchParams = useSearchParams();
   const initialQuery = searchParams.get("q") || "";
-
   const [query, setQuery] = useState(initialQuery);
   const [activeQuery, setActiveQuery] = useState(initialQuery);
+  const [keyword, setKeyword] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
+  const [activeFilters, setActiveFilters] = useState({
+    keyword: "",
+    tags: [] as string[],
+  });
 
-  const { data: results = [], isLoading } = useSearchRAG(activeQuery);
+  const { data: results = [], isLoading } = useSearchRAG(activeQuery, activeFilters);
 
   useEffect(() => {
     if (initialQuery) {
@@ -22,85 +34,135 @@ export default function SearchRAGPage() {
     }
   }, [initialQuery]);
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (query.trim()) {
       setActiveQuery(query.trim());
+      setActiveFilters({ keyword: keyword.trim(), tags: parseTags(tagsInput) });
     }
-  };
+  }
+
+  function resetMetadataFilters() {
+    setKeyword("");
+    setTagsInput("");
+    setActiveFilters({ keyword: "", tags: [] });
+  }
+
+  const hasMetadataFilters = Boolean(activeFilters.keyword || activeFilters.tags.length > 0);
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Header Banner */}
-      <div className="glass-panel p-6 md:p-8 rounded-3xl border border-primary-200/80 shadow-rose-subtle space-y-4">
+    <div className="mx-auto max-w-5xl space-y-6">
+      <div className="glass-panel space-y-4 rounded-3xl border border-primary-200/80 p-6 shadow-rose-subtle md:p-8">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-primary-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-[11px] font-bold">
-            <Sparkles className="w-3.5 h-3.5 stroke-current text-primary-600 dark:text-primary-400" />
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-primary-100 px-3 py-0.5 text-[11px] font-bold text-slate-800 dark:bg-slate-800 dark:text-slate-200">
+            <Sparkles className="h-3.5 w-3.5 stroke-current text-primary-600 dark:text-primary-400" />
             <span>Công Cụ Tra Cứu Thông Minh RAG Vector BGE-M3</span>
           </div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
             Tra cứu Văn bản & Quy chế CTSV
           </h1>
           <p className="text-xs text-muted-foreground">
-            Tìm kiếm ngữ nghĩa (Semantic Vector Search) + Khớp từ khóa trực tiếp từ toàn bộ kho tài liệu số hóa.
+            Tìm kiếm ngữ nghĩa kết hợp full-text; bộ lọc metadata/tag được áp dụng trước candidate retrieval.
           </p>
         </div>
 
-        {/* Search Bar */}
-        <form onSubmit={handleSearchSubmit} className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 stroke-current text-slate-400" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Nhập câu hỏi hoặc từ khóa (ví dụ: nghỉ học tạm thời, điểm rèn luyện, học bổng...)"
-              className="w-full h-11 pl-10 pr-4 rounded-xl border border-primary-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary-400 transition-all shadow-sm"
-            />
+        <form onSubmit={handleSearchSubmit} className="space-y-3">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                id="rag-query"
+                type="text"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Nhập câu hỏi hoặc từ khóa (ví dụ: nghỉ học tạm thời, điểm rèn luyện, học bổng...)"
+                className="h-11 w-full rounded-xl border border-primary-200 bg-white/80 pl-10 pr-4 text-xs text-foreground shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-primary-400 dark:border-slate-800 dark:bg-slate-900/80"
+              />
+            </div>
+            <button
+              type="submit"
+              aria-label="Thực hiện tìm kiếm RAG"
+              className="flex h-11 items-center gap-2 rounded-xl bg-primary-400 px-6 text-xs font-bold text-slate-950 shadow-rose-subtle transition-all hover:bg-primary-500 active:scale-[0.98]"
+            >
+              <Search className="h-4 w-4 stroke-current" />
+              <span>Tìm kiếm RAG</span>
+            </button>
           </div>
-          <button
-            type="submit"
-            aria-label="Thực hiện tìm kiếm RAG"
-            className="px-6 h-11 rounded-xl bg-primary-400 text-slate-950 font-bold text-xs shadow-rose-subtle hover:bg-primary-500 transition-all flex items-center gap-2 active:scale-[0.98]"
-          >
-            <Search className="w-4 h-4 stroke-current" />
-            <span>Tìm kiếm RAG</span>
-          </button>
+
+          <details className="rounded-xl border border-primary-100 bg-white/50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <summary className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+              <SlidersHorizontal className="h-4 w-4" />
+              Bộ lọc metadata và tag
+            </summary>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div>
+                <label htmlFor="rag-keyword" className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-200">
+                  Từ khóa metadata
+                </label>
+                <input
+                  id="rag-keyword"
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  placeholder="Tên, số hiệu, đơn vị ban hành hoặc tag"
+                  className="h-10 w-full rounded-xl border border-primary-200 bg-white/80 px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary-400 dark:border-slate-800 dark:bg-slate-900/80"
+                />
+              </div>
+              <div>
+                <label htmlFor="rag-tags" className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-200">
+                  Tag bắt buộc
+                </label>
+                <input
+                  id="rag-tags"
+                  value={tagsInput}
+                  onChange={(event) => setTagsInput(event.target.value)}
+                  placeholder="Ví dụ: quy_che, dao_tao"
+                  className="h-10 w-full rounded-xl border border-primary-200 bg-white/80 px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary-400 dark:border-slate-800 dark:bg-slate-900/80"
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">Các tag cách nhau bằng dấu phẩy; tất cả tag đã nhập phải cùng có trên tài liệu.</p>
+          </details>
         </form>
       </div>
 
-      {/* Results Header */}
-      {activeQuery && (
-        <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 px-2">
+      {activeQuery ? (
+        <div className="flex items-center justify-between px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
           <span>
             Kết quả tra cứu cho: <span className="font-bold text-slate-900 dark:text-white">&ldquo;{activeQuery}&rdquo;</span>
           </span>
-          <span className="text-muted-foreground">Tìm thấy {results.length} đoạn trích tương đồng</span>
+          <div className="flex items-center gap-3">
+            <span className="text-muted-foreground">Tìm thấy {results.length} đoạn trích tương đồng</span>
+            {hasMetadataFilters ? (
+              <button
+                type="button"
+                onClick={resetMetadataFilters}
+                className="text-xs font-semibold text-primary-700 hover:text-primary-800 dark:text-primary-300"
+              >
+                Xóa metadata/tag
+              </button>
+            ) : null}
+          </div>
         </div>
-      )}
+      ) : null}
 
-      {/* Results List */}
       {isLoading ? (
-        <div className="glass-panel p-12 rounded-3xl text-center space-y-3">
-          <div className="w-8 h-8 border-4 border-primary-300 border-t-primary-600 rounded-full animate-spin mx-auto" />
+        <div className="glass-panel space-y-3 rounded-3xl p-12 text-center">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-primary-300 border-t-primary-600" />
           <p className="text-xs text-muted-foreground">Đang tính toán vector tương đồng BGE-M3...</p>
         </div>
       ) : results.length > 0 ? (
         <div className="space-y-4">
-          {results.map((item: any, idx: number) => (
+          {results.map((result) => (
             <SearchResultCard
-              key={idx}
-              document={item.document}
-              score={item.score}
-              snippet={item.snippet}
-              pageNumber={item.pageNumber}
+              key={result.chunkId}
+              result={result}
               highlightQuery={activeQuery}
             />
           ))}
         </div>
       ) : activeQuery ? (
-        <div className="glass-panel p-12 rounded-3xl text-center space-y-3">
-          <Inbox className="w-10 h-10 text-muted-foreground mx-auto stroke-current" />
+        <div className="glass-panel space-y-3 rounded-3xl p-12 text-center">
+          <Inbox className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Không tìm thấy kết quả RAG nào phù hợp.</p>
         </div>
       ) : null}

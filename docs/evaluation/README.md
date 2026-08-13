@@ -2,6 +2,11 @@
 
 > Thư mục này chứa các báo cáo đánh giá model OCR sau mỗi lần training.
 
+## Artefact chuẩn bị (chưa phải kết quả)
+
+- `ocr-evaluation-protocol.md` mô tả điều kiện, metric và tiêu chí so sánh baseline/fine-tune. Protocol không xác nhận đã có corpus hoặc benchmark.
+- `rag-golden-set-template.yaml` chỉ chứa placeholder de-identified cho bộ câu hỏi vàng RAG. Không đưa query, document ID, citation hoặc OCR text thật vào template.
+
 ## Quy ước đặt tên
 
 ```
@@ -29,3 +34,4 @@ Mỗi file phải có:
 - **KHÔNG** commit dữ liệu training, ảnh test, hay checkpoint.
 - **CHỈ** commit báo cáo dạng Markdown (numbers + chart).
 - Commit sample text lỗi generic — KHÔNG lộ PII (tên SV, MSSV).
+- Khi chưa chạy evaluation, dùng `NOT_MEASURED`/`NOT_AVAILABLE`; không đưa accuracy, CER, WER, recall hay citation precision mô phỏng vào báo cáo.

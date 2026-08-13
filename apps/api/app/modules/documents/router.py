@@ -61,6 +61,8 @@ async def list_documents(
     status: str | None = Query(None),
     type: str | None = Query(None),
     q: str | None = Query(None),
+    keyword: str | None = Query(None),
+    tags: list[str] | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
 ) -> DocumentListEnvelope:
@@ -71,6 +73,8 @@ async def list_documents(
         status=status,
         doc_type=type,
         q=q,
+        keyword=keyword,
+        tags=tags,
         page=page,
         limit=limit,
     )

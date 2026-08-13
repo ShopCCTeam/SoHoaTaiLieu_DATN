@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CTSV OCR Dataset Manifest",
+  "description": "Metadata-only manifest for an approved OCR corpus. The manifest must not contain OCR text, PII, image bytes, PDF paths, model artifacts, or secret values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "approval",
+    "render_dpi",
+    "split_strategy",
+    "splits"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "dataset_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{2,63}$"
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "approved_at", "retention_policy"],
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Internal approval reference only; do not put a person name, email, student ID, or secret here."
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "retention_policy": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "render_dpi": {
+      "const": 300
+    },
+    "split_strategy": {
+      "const": "document-level"
+    },
+    "splits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["train", "validation", "test"],
+      "properties": {
+        "train": { "$ref": "#/$defs/split" },
+        "validation": { "$ref": "#/$defs/split" },
+        "test": { "$ref": "#/$defs/split" }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_id", "evaluation_status"],
+      "properties": {
+        "model_id": { "type": "string", "minLength": 1 },
+        "evaluation_status": {
+          "enum": ["NOT_RUN", "RUNNING", "COMPLETED", "FAILED"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "split": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_count", "content_checksum_status"],
+      "properties": {
+        "document_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_checksum_status": {
+          "enum": ["NOT_COMPUTED", "COMPUTED_OFF_REPOSITORY"]
+        }
+      }
+    }
+  }
+}

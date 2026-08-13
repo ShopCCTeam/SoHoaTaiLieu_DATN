@@ -13,6 +13,8 @@ class SearchQueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000, description="Nội dung tìm kiếm")
     scope: DocumentScopeCode | None = Field(None, description="Lọc theo phạm vi tài liệu")
     doc_type: str | None = Field(None, description="Lọc theo loại tài liệu")
+    keyword: str | None = Field(None, description="Lọc metadata bổ sung")
+    tags: list[str] | None = Field(None, description="Các tag exact-match bắt buộc")
     alpha: float = Field(
         0.5, ge=0.0, le=1.0, description="Trọng số RRF (0.0: fulltext -> 1.0: vector)"
     )

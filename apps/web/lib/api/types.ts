@@ -15,6 +15,7 @@ import type {
   OCRPage as ApiOCRPage,
   Citation as ApiCitation,
   Job as ApiJob,
+  SearchResultItem as ApiSearchResultItem,
   DocumentStatusEnum,
   DocumentScope,
   OCRReviewStatus,
@@ -56,6 +57,19 @@ export interface Document {
   fileUrl?: string;
   fileSize?: number;
   pageCount?: number;
+}
+
+export interface SearchResult {
+  chunkId: ApiSearchResultItem["chunk_id"];
+  documentId: ApiSearchResultItem["document_id"];
+  documentTitle: ApiSearchResultItem["document_title"];
+  documentScope: ApiSearchResultItem["document_scope"];
+  documentType: ApiSearchResultItem["document_type"];
+  pageNumber: ApiSearchResultItem["page_number"];
+  text: ApiSearchResultItem["text"];
+  score: ApiSearchResultItem["score"];
+  vectorScore: ApiSearchResultItem["vector_score"];
+  fulltextScore: ApiSearchResultItem["fulltext_score"];
 }
 
 export interface DocumentVersion {

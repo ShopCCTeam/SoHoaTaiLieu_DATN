@@ -1,0 +1,51 @@
+# TEMPLATE ONLY — không chứa câu hỏi thật, OCR text, title nội bộ hoặc citation thực.
+# Golden set đã phê duyệt phải được quản lý theo chính sách dữ liệu; chỉ báo cáo aggregate được commit.
+schema_version: "1.0"
+dataset_id: "replace-with-approved-rag-evaluation-id"
+source_approval_reference: "replace-with-internal-approval-reference"
+retrieval_contract:
+  required_embedding_dimension: 1024
+  vector_score_threshold: 0.6
+  required_citation_fields:
+    - document_id
+    - document_version_id
+    - title
+    - page_number
+    - chunk_id
+    - quote
+    - score
+    - bbox
+cases:
+  - case_id: "RAG-PLACEHOLDER-001"
+    category: "answerable"
+    user_query: "<replace-with-approved-deidentified-query>"
+    expected:
+      has_sufficient_evidence: true
+      required_document_ids:
+        - "<replace-with-approved-document-id>"
+      minimum_citation_count: 1
+      required_scope: "PUBLIC"
+      answer_rubric: "<replace-with-deidentified-rubric>"
+  - case_id: "RAG-PLACEHOLDER-002"
+    category: "insufficient_evidence"
+    user_query: "<replace-with-approved-out-of-corpus-query>"
+    expected:
+      has_sufficient_evidence: false
+      minimum_citation_count: 0
+      required_scope: "PUBLIC"
+      answer_rubric: "Không tìm thấy thông tin phù hợp trong kho tài liệu."
+  - case_id: "RAG-PLACEHOLDER-003"
+    category: "rbac_negative"
+    user_query: "<replace-with-approved-deidentified-query>"
+    expected:
+      has_sufficient_evidence: false
+      minimum_citation_count: 0
+      requested_scope: "INTERNAL"
+      actor_role: "student"
+      expected_http_status: 403
+scoring:
+  retrieval_recall_at_k: "NOT_MEASURED"
+  citation_precision: "NOT_MEASURED"
+  grounded_answer_rate: "NOT_MEASURED"
+  insufficient_evidence_precision: "NOT_MEASURED"
+  rbac_leak_count: "NOT_MEASURED"

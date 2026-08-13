@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api/client";
+import { apiClient, isApiMockMode } from "@/lib/api/client";
 import { API_ENDPOINTS } from "@/lib/api/endpoints";
 import { useAuthStore } from "@/lib/auth/session";
 import {
@@ -13,7 +13,12 @@ import type {
   User,
   ChatAnswerData,
   Job,
+  SearchResult,
 } from "@/lib/api/types";
+import type {
+  SearchResponse as ApiSearchResponse,
+  SearchResultItem as ApiSearchResultItem,
+} from "@ctsv/contracts";
 
 /**
  * Custom Query Hooks using apiClient.
@@ -22,16 +27,33 @@ import type {
  * → camelCase domain. Component chỉ nhận domain model.
  */
 
-export function useDocuments(params?: {
+export interface DocumentQueryParams {
   status?: string;
   type?: string;
-  query?: string;
-}) {
+  q?: string;
+  keyword?: string;
+  tags?: string[];
+}
+
+export interface SearchQueryParams {
+  keyword?: string;
+  tags?: string[];
+}
+
+function appendMetadataFilters(searchParams: URLSearchParams, params?: SearchQueryParams): void {
+  if (params?.keyword) searchParams.set("keyword", params.keyword);
+  for (const tag of params?.tags || []) {
+    if (tag.trim()) searchParams.append("tags", tag.trim());
+  }
+}
+
+export function useDocuments(params?: DocumentQueryParams) {
   const { token } = useAuthStore();
   const searchParams = new URLSearchParams();
   if (params?.status) searchParams.set("status", params.status);
   if (params?.type) searchParams.set("type", params.type);
-  if (params?.query) searchParams.set("query", params.query);
+  if (params?.q) searchParams.set("q", params.q);
+  appendMetadataFilters(searchParams, params);
 
   const endpoint = `${API_ENDPOINTS.DOCUMENTS.LIST}${
     searchParams.toString() ? `?${searchParams.toString()}` : ""
@@ -176,27 +198,66 @@ export function useUpdateBlockMutation() {
   });
 }
 
-export function useSearchRAG(query: string) {
+interface MockSearchResult {
+  document: Parameters<typeof apiDocumentToDomain>[0];
+  score: number;
+  snippet: string;
+  pageNumber: number;
+}
+
+function mapSearchResult(item: ApiSearchResultItem): SearchResult {
+  return {
+    chunkId: item.chunk_id,
+    documentId: item.document_id,
+    documentTitle: item.document_title,
+    documentScope: item.document_scope,
+    documentType: item.document_type,
+    pageNumber: item.page_number,
+    text: item.text,
+    score: item.score,
+    vectorScore: item.vector_score,
+    fulltextScore: item.fulltext_score,
+  };
+}
+
+function mapMockSearchResult(result: MockSearchResult): SearchResult {
+  const document = apiDocumentToDomain(result.document);
+  return {
+    chunkId: `demo-${document.id}-${result.pageNumber}`,
+    documentId: document.id,
+    documentTitle: document.title,
+    documentScope: document.scope,
+    documentType: document.type,
+    pageNumber: result.pageNumber,
+    text: result.snippet,
+    score: result.score,
+    vectorScore: result.score,
+    fulltextScore: null,
+  };
+}
+
+export function useSearchRAG(query: string, params?: SearchQueryParams) {
   const { token } = useAuthStore();
 
   return useQuery({
-    queryKey: ["search", query],
+    queryKey: ["search", query, params],
     queryFn: async () => {
       if (!query.trim()) return [];
-      const raw = await apiClient<Array<{
-        document: Parameters<typeof apiDocumentToDomain>[0];
-        score: number;
-        snippet: string;
-        pageNumber: number;
-      }>>(`${API_ENDPOINTS.SEARCH.QUERY}?q=${encodeURIComponent(query)}`, {
+      const searchParams = new URLSearchParams({ q: query });
+      appendMetadataFilters(searchParams, params);
+      const endpoint = `${API_ENDPOINTS.SEARCH.QUERY}?${searchParams.toString()}`;
+
+      if (isApiMockMode()) {
+        const raw = await apiClient<MockSearchResult[]>(endpoint, {
+          token: token || undefined,
+        });
+        return raw.map(mapMockSearchResult);
+      }
+
+      const raw = await apiClient<ApiSearchResponse>(endpoint, {
         token: token || undefined,
       });
-      return raw.map((r) => ({
-        document: apiDocumentToDomain(r.document),
-        score: r.score,
-        snippet: r.snippet,
-        pageNumber: r.pageNumber,
-      }));
+      return raw.items.map(mapSearchResult);
     },
     enabled: Boolean(query.trim()),
   });
